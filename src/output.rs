@@ -8,6 +8,7 @@ pub struct Statistics {
     pub included_files: usize,
     pub skipped_by_reason: HashMap<String, usize>,
     pub included_by_extension: HashMap<String, usize>,
+    pub output_size: usize,
 }
 
 impl Statistics {
@@ -27,8 +28,30 @@ impl Statistics {
         *self.skipped_by_reason.entry(reason.to_string()).or_insert(0) += 1;
     }
 
+    pub fn add_output_bytes(&mut self, bytes: usize) {
+        self.output_size += bytes;
+    }
+
     pub fn total_skipped(&self) -> usize {
         self.skipped_by_reason.values().sum()
+    }
+
+    pub fn estimated_tokens(&self) -> usize {
+        // Rough estimate: ~4 characters per token
+        self.output_size / 4
+    }
+
+    fn format_bytes(bytes: usize) -> String {
+        const KB: usize = 1024;
+        const MB: usize = KB * 1024;
+
+        if bytes >= MB {
+            format!("{:.2} MB", bytes as f64 / MB as f64)
+        } else if bytes >= KB {
+            format!("{:.2} KB", bytes as f64 / KB as f64)
+        } else {
+            format!("{} bytes", bytes)
+        }
     }
 
     pub fn format_summary(&self) -> String {
@@ -75,6 +98,15 @@ impl Statistics {
             summary.push('\n');
         }
 
+        // Add output size and token estimate if there's output
+        if self.output_size > 0 {
+            summary.push_str(&format!(
+                "Output size: {} (~{} tokens)\n",
+                Self::format_bytes(self.output_size),
+                self.estimated_tokens()
+            ));
+        }
+
         summary.push_str("</summary>\n");
         summary
     }
@@ -82,32 +114,56 @@ impl Statistics {
 
 pub struct OutputWriter {
     writer: Box<dyn Write>,
+    bytes_written: usize,
 }
 
 impl OutputWriter {
     pub fn new(writer: Box<dyn Write>) -> Self {
-        Self { writer }
+        Self {
+            writer,
+            bytes_written: 0,
+        }
+    }
+
+    pub fn bytes_written(&self) -> usize {
+        self.bytes_written
     }
 
     pub fn write_file_content(&mut self, path: &str, content: &str) -> std::io::Result<()> {
-        writeln!(self.writer, "<file path=\"{}\">", escape_xml(path))?;
-        write!(self.writer, "{}", content)?;
+        let escaped_path = escape_xml(path);
+        let opening_tag = format!("<file path=\"{}\">\n", escaped_path);
+        self.writer.write_all(opening_tag.as_bytes())?;
+        self.bytes_written += opening_tag.len();
+
+        self.writer.write_all(content.as_bytes())?;
+        self.bytes_written += content.len();
+
         if !content.ends_with('\n') {
-            writeln!(self.writer)?;
+            self.writer.write_all(b"\n")?;
+            self.bytes_written += 1;
         }
-        writeln!(self.writer, "</file>")?;
-        writeln!(self.writer)?;
+
+        self.writer.write_all(b"</file>\n\n")?;
+        self.bytes_written += 9; // "</file>\n\n"
+
         Ok(())
     }
 
     pub fn write_summary(&mut self, stats: &Statistics) -> std::io::Result<()> {
-        write!(self.writer, "{}", stats.format_summary())?;
-        writeln!(self.writer)?;
+        let summary = stats.format_summary();
+        self.writer.write_all(summary.as_bytes())?;
+        self.bytes_written += summary.len();
+
+        self.writer.write_all(b"\n")?;
+        self.bytes_written += 1;
+
         Ok(())
     }
 
     pub fn write_file_path(&mut self, path: &str) -> std::io::Result<()> {
-        writeln!(self.writer, "{}", path)?;
+        let line = format!("{}\n", path);
+        self.writer.write_all(line.as_bytes())?;
+        self.bytes_written += line.len();
         Ok(())
     }
 }

@@ -68,13 +68,14 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
         eprintln!("{}", stats.format_summary());
     } else if config.dry_run {
         // Dry run mode - list files that would be included
-        output.write_summary(&stats)?;
         for path in &files_to_process {
             output.write_file_path(&path.display().to_string())?;
         }
+        // Update stats with output size and write summary
+        stats.add_output_bytes(output.bytes_written());
+        output.write_summary(&stats)?;
     } else {
         // Normal mode - write file contents
-        output.write_summary(&stats)?;
         for path in &files_to_process {
             match fs::read_to_string(path) {
                 Ok(content) => {
@@ -85,6 +86,9 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
                 }
             }
         }
+        // Update stats with output size and write summary at the end
+        stats.add_output_bytes(output.bytes_written());
+        output.write_summary(&stats)?;
     }
 
     Ok(stats)
