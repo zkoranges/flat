@@ -586,7 +586,7 @@ cargo test --all
 
 ## License
 
-This project is open source. See repository for license details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Credits
 

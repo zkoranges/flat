@@ -2,6 +2,13 @@
 name = "flat"
 version = "0.1.0"
 edition = "2021"
+authors = ["zkoranges"]
+license = "MIT"
+description = "Flatten codebases into AI-friendly format"
+repository = "https://github.com/zkoranges/flat"
+readme = "README.md"
+keywords = ["cli", "ai", "code", "flatten", "developer-tools"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
