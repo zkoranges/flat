@@ -54,6 +54,13 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
                 files_to_process.push(path.to_path_buf());
                 let extension = path.extension().and_then(|e| e.to_str());
                 stats.add_included(extension);
+
+                // Add file size estimate for output calculation
+                if let Ok(metadata) = fs::metadata(path) {
+                    let file_size = metadata.len();
+                    let path_str = path.display().to_string();
+                    stats.add_file_size_estimate(file_size, path_str.len());
+                }
             }
             Err(e) => {
                 eprintln!("Error walking directory: {}", e);
@@ -65,6 +72,8 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
     // Write output based on mode
     if config.stats_only {
         // Stats only mode - just print statistics
+        // Add overhead for summary block (approximately 200 bytes)
+        stats.add_output_bytes(200);
         eprintln!("{}", stats.format_summary());
     } else if config.dry_run {
         // Dry run mode - list files that would be included

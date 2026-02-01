@@ -23,6 +23,15 @@ impl Statistics {
         *self.included_by_extension.entry(ext).or_insert(0) += 1;
     }
 
+    pub fn add_file_size_estimate(&mut self, file_size: u64, path_length: usize) {
+        // Estimate XML overhead:
+        // - Opening tag: <file path="..."> + newline = ~15 + path_length bytes
+        // - Closing tag: </file>\n\n = 9 bytes
+        // - Potential newline after content = 1 byte
+        let overhead = 25 + path_length;
+        self.output_size += file_size as usize + overhead;
+    }
+
     pub fn add_skipped(&mut self, reason: SkipReason) {
         self.total_files += 1;
         *self.skipped_by_reason.entry(reason.to_string()).or_insert(0) += 1;
