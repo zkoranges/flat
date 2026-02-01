@@ -63,6 +63,31 @@ impl Statistics {
         }
     }
 
+    fn format_tokens(tokens: usize) -> String {
+        if tokens >= 10_000 {
+            // Use k suffix for 10k and above
+            if tokens >= 1_000_000 {
+                format!("{:.1}M", tokens as f64 / 1_000_000.0)
+            } else {
+                format!("{:.1}k", tokens as f64 / 1_000.0)
+            }
+        } else if tokens >= 1_000 {
+            // Use commas for thousands (manual formatting)
+            let s = tokens.to_string();
+            let mut result = String::new();
+            for (i, c) in s.chars().rev().enumerate() {
+                if i > 0 && i % 3 == 0 {
+                    result.push(',');
+                }
+                result.push(c);
+            }
+            result.chars().rev().collect()
+        } else {
+            // No formatting for small numbers
+            tokens.to_string()
+        }
+    }
+
     pub fn format_summary(&self) -> String {
         let mut summary = format!(
             "<summary>\nTotal files: {}\nIncluded: {}",
@@ -112,7 +137,7 @@ impl Statistics {
             summary.push_str(&format!(
                 "Output size: {} (~{} tokens)\n",
                 Self::format_bytes(self.output_size),
-                self.estimated_tokens()
+                Self::format_tokens(self.estimated_tokens())
             ));
         }
 
