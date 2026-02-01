@@ -82,54 +82,16 @@ This tool exists because I got tired of manually crafting `find` commands and ac
 
 ### "But Don't Some AI Tools Already Scan Codebases?"
 
-Yes - but having the **complete context in one place** is fundamentally different and often more powerful.
+Yes - but **complete context in one place** is fundamentally different.
 
-**Why complete context matters:**
+**Why it matters:**
+- **Immediate visibility**: All code in the AI's active context window at once. It sees connections between files instantly, not file-by-file.
+- **Better debugging**: When bugs span multiple files, having everything visible helps the AI spot patterns it would miss with on-demand retrieval.
+- **Works everywhere**: Web browsers, mobile apps, API integrations, local LLMs, any tool that accepts text.
+- **Reproducible**: Save the output, use it later, get identical results. No variance from different indexing.
+- **Your control**: You decide exactly what's included. Not the tool's heuristics.
 
-**1. Everything is immediately visible**
-When you paste flattened code, the AI has ALL your code in its active context window. No fetching files on demand, no "let me check that file" delays. It can see connections between files instantly because they're all right there.
-
-**2. Better debugging of complex issues**
-Bugs that span multiple files? Race conditions? Integration issues? When the AI can see your entire `src/` directory at once, it spots patterns and connections that are hard to find when files are retrieved one-by-one. The whole picture matters.
-
-**3. Reproducible results**
-Save the flattened output. Use it tomorrow. Share it with a teammate. Get identical results. The AI sees exactly the same code, in the same order, every time. No variance from different indexing or retrieval.
-
-**4. Works everywhere**
-- Web browsers (most common interface)
-- Mobile AI apps
-- API integrations and custom tools
-- Local/offline LLMs (Llama, Mistral, etc.)
-- Any tool that accepts text input
-- Tools that don't support filesystem access
-
-**5. Precise control over context**
-You decide exactly what goes in. Not the tool's heuristics. Want only auth-related files? `flat src/auth | pbcopy`. Want to exclude tests? `--exclude test`. You control the context window.
-
-**6. Cross-tool consistency**
-Flatten once, use everywhere. Same context in ChatGPT, Gemini, your local LLM, and your API integration. Compare responses across models with identical input.
-
-**7. No tool dependencies**
-Not limited by:
-- Whether the tool supports codebase scanning
-- How well it's implemented
-- Rate limits on file access
-- Network connectivity
-- File system permissions
-
-**8. Snapshot your codebase**
-Archive the exact state of your code. Debug an issue weeks later with the exact code state. Share a bug report with full context. No "it works on my machine" - they see your exact code.
-
-**9. Token visibility**
-You know exactly what's in the context window. With on-demand file retrieval, you're guessing what the AI can "see". With flattened code, it's explicit.
-
-**10. Cost control (API usage)**
-Send only what's needed. Pay for exactly the tokens you use. No overhead from tool-managed retrieval.
-
-**Real example:**
-You're debugging a React app with a routing bug. The issue involves `App.tsx`, `Router.tsx`, `AuthContext.tsx`, and three route components. With file-by-file retrieval, the AI might miss how the auth state flows through the router to the components. With everything flattened, it sees the complete data flow immediately.
-
-**TL;DR:** Some AI tools can scan codebases, but **complete context in one continuous block** gives better results for debugging, works everywhere, and gives you full control. It's the difference between showing someone a building one room at a time versus handing them the complete blueprint.
+It's the difference between handing someone a complete blueprint versus showing them one room at a time.
 
 ## Installation
 
