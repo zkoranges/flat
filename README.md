@@ -20,7 +20,7 @@ flat --stats                     # See what would be included
 
 ## Overview
 
-`flat` recursively processes directories and consolidates your code into a single, structured output that's easy to share with AI assistants like Claude, GPT-4, or Copilot.
+`flat` recursively processes directories and consolidates your code into a single, structured output for AI context.
 
 **Key Features:**
 - Automatically respects `.gitignore` rules
@@ -78,7 +78,7 @@ find . -type f \
 - You want convenience (respects `.gitignore`)
 - You want it to just work
 
-This tool exists because I got tired of manually crafting `find` commands and accidentally including `node_modules/` or `.env` files when sharing code with Claude.
+This tool exists because I got tired of manually crafting `find` commands and accidentally including `node_modules/` or `.env` files.
 
 ### "But Don't Some AI Tools Already Scan Codebases?"
 
@@ -306,7 +306,7 @@ flat --include js,jsx,ts,tsx --stats
 # Copy source to clipboard (excludes tests, node_modules, .env automatically)
 flat --include js,jsx,ts,tsx --exclude test,spec,stories | pbcopy
 
-# Paste into Claude → "Here's my React app, help me fix the routing bug"
+# Paste into AI → "Here's my React app, help me fix the routing bug"
 ```
 
 ### "Review my Rust code"
