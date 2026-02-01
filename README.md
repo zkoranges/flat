@@ -1,5 +1,9 @@
 # flat
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+[![Release](https://img.shields.io/github/v/release/zkoranges/flat)](https://github.com/zkoranges/flat/releases)
+
 A command-line tool to flatten your codebase into a single file for AI context.
 
 **TL;DR:** Copy your entire codebase to share with AI, without secrets or binaries.
