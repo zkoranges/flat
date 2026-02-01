@@ -7,6 +7,7 @@ pub struct Statistics {
     pub total_files: usize,
     pub included_files: usize,
     pub skipped_by_reason: HashMap<String, usize>,
+    pub included_by_extension: HashMap<String, usize>,
 }
 
 impl Statistics {
@@ -14,9 +15,11 @@ impl Statistics {
         Self::default()
     }
 
-    pub fn add_included(&mut self) {
+    pub fn add_included(&mut self, extension: Option<&str>) {
         self.total_files += 1;
         self.included_files += 1;
+        let ext = extension.unwrap_or("no extension").to_string();
+        *self.included_by_extension.entry(ext).or_insert(0) += 1;
     }
 
     pub fn add_skipped(&mut self, reason: SkipReason) {
@@ -30,9 +33,31 @@ impl Statistics {
 
     pub fn format_summary(&self) -> String {
         let mut summary = format!(
-            "<summary>\nTotal files: {}\nIncluded: {}\n",
+            "<summary>\nTotal files: {}\nIncluded: {}",
             self.total_files, self.included_files
         );
+
+        // Add extension breakdown for included files
+        if !self.included_by_extension.is_empty() {
+            let mut extensions: Vec<_> = self.included_by_extension.iter().collect();
+            extensions.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+
+            let ext_str = extensions
+                .iter()
+                .map(|(ext, count)| {
+                    if *ext == "no extension" {
+                        format!("{} without extension", count)
+                    } else {
+                        format!("{} .{}", count, ext)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            summary.push_str(&format!(" ({})", ext_str));
+        }
+
+        summary.push('\n');
 
         if self.total_skipped() > 0 {
             summary.push_str(&format!("Skipped: {}", self.total_skipped()));
@@ -47,9 +72,10 @@ impl Statistics {
                 .join(", ");
 
             summary.push_str(&format!(" ({})", reason_str));
+            summary.push('\n');
         }
 
-        summary.push_str("\n</summary>\n");
+        summary.push_str("</summary>\n");
         summary
     }
 }
@@ -102,8 +128,8 @@ mod tests {
     #[test]
     fn test_statistics() {
         let mut stats = Statistics::new();
-        stats.add_included();
-        stats.add_included();
+        stats.add_included(Some("rs"));
+        stats.add_included(Some("toml"));
         stats.add_skipped(SkipReason::Binary);
         stats.add_skipped(SkipReason::Secret);
         stats.add_skipped(SkipReason::Binary);
@@ -111,6 +137,8 @@ mod tests {
         assert_eq!(stats.total_files, 5);
         assert_eq!(stats.included_files, 2);
         assert_eq!(stats.total_skipped(), 3);
+        assert_eq!(stats.included_by_extension.get("rs"), Some(&1));
+        assert_eq!(stats.included_by_extension.get("toml"), Some(&1));
     }
 
     #[test]

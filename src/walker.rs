@@ -52,7 +52,8 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
                 }
 
                 files_to_process.push(path.to_path_buf());
-                stats.add_included();
+                let extension = path.extension().and_then(|e| e.to_str());
+                stats.add_included(extension);
             }
             Err(e) => {
                 eprintln!("Error walking directory: {}", e);
