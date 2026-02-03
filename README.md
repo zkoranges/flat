@@ -9,8 +9,11 @@ A command-line tool to flatten your codebase into a single file for AI context.
 **TL;DR:** Copy your entire codebase to share with AI, without secrets or binaries.
 
 ```bash
-# Install
+# Install (macOS)
 brew install zkoranges/tap/flat
+
+# Or without Homebrew
+curl -sSL https://raw.githubusercontent.com/zkoranges/flat/main/install.sh | bash
 
 # Use
 flat | pbcopy                    # Copy everything
