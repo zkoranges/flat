@@ -61,3 +61,23 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    runs-on: ubuntu-latest
+    needs: [build-macos, test]
+    steps:
+      - name: Get version from tag
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: flat
+          formula-path: Formula/flat.rb
+          homebrew-tap: zkoranges/homebrew-tap
+          tag-name: ${{ github.ref_name }}
+          download-url: https://github.com/zkoranges/flat/archive/refs/tags/${{ github.ref_name }}.tar.gz
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

@@ -10,7 +10,7 @@ A command-line tool to flatten your codebase into a single file for AI context.
 
 ```bash
 # Install
-curl -sSL https://raw.githubusercontent.com/zkoranges/flat/main/install.sh | bash
+brew install zkoranges/tap/flat
 
 # Use
 flat | pbcopy                    # Copy everything
@@ -94,6 +94,12 @@ Yes - but **complete context in one place** is fundamentally different.
 It's the difference between handing someone a complete blueprint versus showing them one room at a time.
 
 ## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew install zkoranges/tap/flat
+```
 
 ### Quick Install (macOS)
 
