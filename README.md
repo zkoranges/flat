@@ -204,8 +204,10 @@ Excluded by budget: 16 files
 flat --include rs,toml,md             # only these extensions
 flat --exclude test,spec,lock         # skip these extensions
 flat --match '*_test.go'              # glob on filename (repeatable)
-flat --max-size 10485760              # increase size limit to 10 MB
+flat --max-size 10M                   # increase size limit to 10 MiB
 ```
+
+All numeric arguments accept human-friendly suffixes: `k`/`K`, `M`, `G`. Token counts use decimal multipliers (10k = 10,000). Byte sizes use binary multipliers (10M = 10 MiB = 10,485,760 bytes).
 
 Filters compose: `--include`/`--exclude` operate on extensions, `--match` operates on filenames. They all apply before compression and budget allocation.
 
@@ -263,8 +265,8 @@ flat --compress | pbcopy                         # structural overview
 flat --compress --full-match 'main.rs' | pbcopy  # overview + one file in full
 
 # Token budgets
-flat --compress --tokens 100000 | pbcopy         # fit into 100k context
-flat --compress --tokens 8000 --dry-run           # preview what fits
+flat --compress --tokens 100k | pbcopy            # fit into 100k context
+flat --compress --tokens 8k --dry-run             # preview what fits
 
 # Targeted
 flat src/api --include ts --exclude spec          # just the API layer
