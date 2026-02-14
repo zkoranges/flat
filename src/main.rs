@@ -6,55 +6,78 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "flat")]
-#[command(about = "Flatten a codebase into AI-friendly format", long_about = None)]
 #[command(version)]
+#[command(about = "Flatten a codebase into AI-friendly format")]
+#[command(long_about = "\
+Flatten a codebase into AI-friendly XML format. Outputs <file> tags with source \
+content, respecting .gitignore and skipping binaries and secrets automatically.
+
+Examples:
+  flat                                  Flatten current directory to stdout
+  flat src/ | pbcopy                    Copy to clipboard (macOS)
+  flat --include rs,toml                Only Rust and TOML files
+  flat --compress                       Signatures only — strip function bodies
+  flat --compress --tokens 8000         Fit into a token budget
+  flat --compress --full-match 'main.rs'  Keep main.rs full, compress the rest
+  flat --stats                          Preview file count and size
+  flat --dry-run                        List files without content")]
+#[command(after_help = "\
+Compression (--compress) extracts signatures and strips function/method bodies, \
+reducing token usage by 30-60%. Supported languages: Rust, TypeScript, JavaScript, \
+Python, Go. Unsupported files pass through in full.
+
+Combine --compress with --tokens to fit a codebase into a context window. \
+High-priority files (README, entry points, configs) are included first; \
+low-priority files (tests, fixtures) are excluded first.
+
+Exit codes: 0 = success, 3 = no files matched")]
 struct Cli {
-    /// Directory to process (default: current directory)
-    #[arg(default_value = ".")]
+    /// Directory to process
+    #[arg(default_value = ".", value_name = "DIR")]
     path: PathBuf,
 
-    /// Include only these file extensions (comma-separated, e.g., rs,toml,md)
-    #[arg(long, value_delimiter = ',')]
+    /// Include only these extensions [e.g. --include rs,toml,md]
+    #[arg(long, value_delimiter = ',', value_name = "EXT")]
     include: Option<Vec<String>>,
 
-    /// Exclude these file extensions (comma-separated, e.g., test,json)
-    #[arg(long, value_delimiter = ',')]
+    /// Exclude these extensions [e.g. --exclude json,lock]
+    #[arg(long, value_delimiter = ',', value_name = "EXT")]
     exclude: Option<Vec<String>>,
 
-    /// Include only files whose name matches a glob pattern (can be repeated, e.g., *_test.go)
-    #[arg(long, alias = "regex")]
+    /// Only files matching a glob pattern [e.g. --match '*_test.go']
+    #[arg(long, alias = "regex", value_name = "GLOB")]
     r#match: Option<Vec<String>>,
 
-    /// Write output to file instead of stdout
-    #[arg(short, long)]
+    /// Write output to a file instead of stdout
+    #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
-    /// List files that would be included without processing them
+    /// List files that would be included, without content
     #[arg(long)]
     dry_run: bool,
 
-    /// Show statistics only (no file listing or content)
+    /// Show statistics only — no file listing or content
     #[arg(long)]
     stats: bool,
 
-    /// Use a custom .gitignore file
-    #[arg(long)]
+    /// Path to a custom .gitignore file
+    #[arg(long, value_name = "FILE")]
     gitignore: Option<PathBuf>,
 
-    /// Maximum file size in bytes (default: 1MB)
-    #[arg(long, default_value = "1048576")]
+    /// Maximum file size in bytes
+    #[arg(long, default_value = "1048576", value_name = "BYTES")]
     max_size: u64,
 
-    /// Compress supported source files (extract signatures, strip bodies)
+    /// Extract signatures and strip function bodies (Rust, TS, JS, Python, Go)
     #[arg(long)]
     compress: bool,
 
-    /// Glob patterns for files that should always get full content (requires --compress)
-    #[arg(long, value_delimiter = ',')]
+    /// Keep full content for files matching these globs (use with --compress)
+    #[arg(long, value_delimiter = ',', value_name = "GLOB")]
     full_match: Option<Vec<String>>,
 
-    /// Maximum estimated token count for file content in output
-    #[arg(long)]
+    /// Cap output to an estimated token budget (prioritizes important files)
+    #[arg(long, value_name = "N")]
     tokens: Option<usize>,
 }
 
@@ -109,8 +132,15 @@ fn main() -> Result<()> {
 
     let stats = walk_and_flatten(&config)?;
 
-    // Exit with error if no files were processed
-    if stats.included_files == 0 {
+    // Exit with error if no files appear in the output
+    let output_files = if stats.token_budget.is_some() {
+        stats
+            .included_files
+            .saturating_sub(stats.excluded_by_budget.len())
+    } else {
+        stats.included_files
+    };
+    if output_files == 0 {
         eprintln!("Error: No files matched the criteria");
         std::process::exit(3);
     }

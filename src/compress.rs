@@ -69,6 +69,7 @@ fn strip_bom(source: &str) -> &str {
 /// - ERROR nodes in parse tree → full content + warn
 /// - Empty compressed output → full content + warn
 /// - Compressed ≥ original → full content (no warning)
+/// - tree-sitter panic → full content + warn (catch_unwind)
 pub fn compress_source(source: &str, lang: CompressLanguage) -> CompressResult {
     let source = strip_bom(source);
 
@@ -76,6 +77,23 @@ pub fn compress_source(source: &str, lang: CompressLanguage) -> CompressResult {
         return CompressResult::Compressed(String::new());
     }
 
+    // Wrap tree-sitter calls in catch_unwind to prevent panics from crashing the process
+    let source_owned = source.to_string();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compress_source_inner(&source_owned, lang)
+    }));
+
+    match result {
+        Ok(compress_result) => compress_result,
+        Err(_) => CompressResult::Fallback(
+            source.to_string(),
+            Some("tree-sitter panic caught".to_string()),
+        ),
+    }
+}
+
+/// Inner compression logic, separated so catch_unwind can wrap it
+fn compress_source_inner(source: &str, lang: CompressLanguage) -> CompressResult {
     let ts_lang = tree_sitter_language(lang);
 
     let mut parser = Parser::new();
@@ -160,9 +178,16 @@ fn compress_rust(source: &str, root: tree_sitter::Node) -> String {
     for child in root.children(&mut cursor) {
         match child.kind() {
             // Keep these entirely
-            "use_declaration" | "extern_crate_declaration" | "mod_item"
-            | "type_item" | "const_item" | "static_item" | "attribute_item"
-            | "inner_attribute_item" | "macro_definition" | "macro_invocation" => {
+            "use_declaration"
+            | "extern_crate_declaration"
+            | "mod_item"
+            | "type_item"
+            | "const_item"
+            | "static_item"
+            | "attribute_item"
+            | "inner_attribute_item"
+            | "macro_definition"
+            | "macro_invocation" => {
                 output.push_str(node_text(source, child));
                 output.push('\n');
             }
@@ -210,7 +235,10 @@ fn compress_rust_function(source: &str, node: tree_sitter::Node) -> String {
     for child in node.children(&mut cursor) {
         if child.kind() == "block" {
             // Everything before the block is the signature
-            return format!("{} {{ ... }}", source[node.start_byte()..child.start_byte()].trim_end());
+            return format!(
+                "{} {{ ... }}",
+                source[node.start_byte()..child.start_byte()].trim_end()
+            );
         }
     }
 
@@ -372,7 +400,10 @@ fn compress_ts_function(source: &str, node: tree_sitter::Node) -> String {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "statement_block" {
-            return format!("{} {{ ... }}", source[node.start_byte()..child.start_byte()].trim_end());
+            return format!(
+                "{} {{ ... }}",
+                source[node.start_byte()..child.start_byte()].trim_end()
+            );
         }
     }
     node_text(source, node).to_string()
@@ -415,7 +446,10 @@ fn compress_ts_method(source: &str, node: tree_sitter::Node) -> String {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "statement_block" {
-            return format!("{} {{ ... }}", source[node.start_byte()..child.start_byte()].trim_end());
+            return format!(
+                "{} {{ ... }}",
+                source[node.start_byte()..child.start_byte()].trim_end()
+            );
         }
     }
     node_text(source, node).to_string()
@@ -434,7 +468,11 @@ fn compress_ts_variable(source: &str, node: tree_sitter::Node) -> String {
     text.to_string()
 }
 
-fn compress_ts_var_inner(source: &str, node: tree_sitter::Node, _cursor: &mut tree_sitter::TreeCursor) -> Option<String> {
+fn compress_ts_var_inner(
+    source: &str,
+    node: tree_sitter::Node,
+    _cursor: &mut tree_sitter::TreeCursor,
+) -> Option<String> {
     // Walk to find arrow_function children with statement_block bodies
     fn find_arrow_body(node: tree_sitter::Node) -> Option<(usize, usize)> {
         if node.kind() == "arrow_function" {
@@ -595,7 +633,10 @@ fn compress_python_class(source: &str, node: tree_sitter::Node) -> String {
                     "expression_statement" => {
                         let text = node_text(source, item);
                         // Keep docstrings and assignments (class-level vars)
-                        if text.starts_with("\"\"\"") || text.starts_with("'''") || text.contains('=') {
+                        if text.starts_with("\"\"\"")
+                            || text.starts_with("'''")
+                            || text.contains('=')
+                        {
                             output.push_str("    ");
                             output.push_str(text);
                             output.push('\n');
@@ -673,7 +714,10 @@ fn compress_go_function(source: &str, node: tree_sitter::Node) -> String {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "block" {
-            return format!("{} {{ ... }}", source[node.start_byte()..child.start_byte()].trim_end());
+            return format!(
+                "{} {{ ... }}",
+                source[node.start_byte()..child.start_byte()].trim_end()
+            );
         }
     }
     node_text(source, node).to_string()
@@ -691,9 +735,15 @@ mod tests {
     #[test]
     fn test_language_for_extension() {
         assert_eq!(language_for_extension("rs"), Some(CompressLanguage::Rust));
-        assert_eq!(language_for_extension("ts"), Some(CompressLanguage::TypeScript));
+        assert_eq!(
+            language_for_extension("ts"),
+            Some(CompressLanguage::TypeScript)
+        );
         assert_eq!(language_for_extension("tsx"), Some(CompressLanguage::Tsx));
-        assert_eq!(language_for_extension("js"), Some(CompressLanguage::JavaScript));
+        assert_eq!(
+            language_for_extension("js"),
+            Some(CompressLanguage::JavaScript)
+        );
         assert_eq!(language_for_extension("jsx"), Some(CompressLanguage::Jsx));
         assert_eq!(language_for_extension("py"), Some(CompressLanguage::Python));
         assert_eq!(language_for_extension("go"), Some(CompressLanguage::Go));
@@ -703,8 +753,14 @@ mod tests {
 
     #[test]
     fn test_language_for_path() {
-        assert_eq!(language_for_path(Path::new("main.rs")), Some(CompressLanguage::Rust));
-        assert_eq!(language_for_path(Path::new("foo.test.ts")), Some(CompressLanguage::TypeScript));
+        assert_eq!(
+            language_for_path(Path::new("main.rs")),
+            Some(CompressLanguage::Rust)
+        );
+        assert_eq!(
+            language_for_path(Path::new("foo.test.ts")),
+            Some(CompressLanguage::TypeScript)
+        );
         assert_eq!(language_for_path(Path::new("Makefile")), None);
         assert_eq!(language_for_path(Path::new("README.md")), None);
     }
@@ -723,7 +779,9 @@ mod tests {
                 assert!(output.contains("{ ... }"));
                 assert!(!output.contains("let greeting"));
             }
-            CompressResult::Fallback(_, reason) => panic!("Expected compression, got fallback: {:?}", reason),
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
         }
     }
 
@@ -823,7 +881,9 @@ export default processData;"#;
                 assert!(output.contains("export default processData;"));
                 assert!(!output.contains("filtered"));
             }
-            CompressResult::Fallback(_, reason) => panic!("Expected compression, got fallback: {:?}", reason),
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
         }
     }
 
@@ -888,7 +948,9 @@ def process_file(path: str) -> bool:
                 assert!(output.contains("..."));
                 assert!(!output.contains("splitlines"));
             }
-            CompressResult::Fallback(_, reason) => panic!("Expected compression, got fallback: {:?}", reason),
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
         }
     }
 
@@ -942,7 +1004,9 @@ func ProcessData(data []string) int {
                 assert!(output.contains("func ProcessData(data []string) int { ... }"));
                 assert!(!output.contains("filtered"));
             }
-            CompressResult::Fallback(_, reason) => panic!("Expected compression, got fallback: {:?}", reason),
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
         }
     }
 
@@ -997,7 +1061,9 @@ func (c *Config) Validate() bool {
                 assert!(output.contains("// This is a comment"));
                 assert!(output.contains("// Another comment"));
             }
-            CompressResult::Fallback(_, _) => panic!("Comments-only should compress (keeping comments)"),
+            CompressResult::Fallback(_, _) => {
+                panic!("Comments-only should compress (keeping comments)")
+            }
         }
     }
 }

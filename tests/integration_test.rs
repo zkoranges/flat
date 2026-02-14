@@ -666,7 +666,11 @@ fn test_compress_no_mode_without_flag() {
 fn test_compress_unsupported_gets_full() {
     let temp_dir = TempDir::new().unwrap();
 
-    create_test_file(temp_dir.path(), "config.toml", "[package]\nname = \"test\"\n");
+    create_test_file(
+        temp_dir.path(),
+        "config.toml",
+        "[package]\nname = \"test\"\n",
+    );
 
     let output = flat_cmd()
         .arg(temp_dir.path())
@@ -803,7 +807,11 @@ fn test_tokens_budget_limits_output() {
     // small.rs should be included
     assert!(stdout.contains("small.rs"));
     // big.rs should be excluded
-    assert!(!stdout.contains("<file") || !stdout.contains("big.rs") || stdout.contains("Excluded by budget"));
+    assert!(
+        !stdout.contains("<file")
+            || !stdout.contains("big.rs")
+            || stdout.contains("Excluded by budget")
+    );
 }
 
 #[test]
