@@ -207,7 +207,7 @@ flat --match '*_test.go'              # glob on filename (repeatable)
 flat --max-size 10M                   # increase size limit to 10 MiB
 ```
 
-All numeric arguments accept human-friendly suffixes: `k`/`K`, `M`, `G`. Token counts use decimal multipliers (10k = 10,000). Byte sizes use binary multipliers (10M = 10 MiB = 10,485,760 bytes).
+Numeric arguments accept single-letter suffixes: `k`/`K` (thousands), `M` (millions/mebibytes), `G` (billions/gibibytes).
 
 Filters compose: `--include`/`--exclude` operate on extensions, `--match` operates on filenames. They all apply before compression and budget allocation.
 
@@ -283,7 +283,7 @@ flat --compress -o snapshot.xml                   # compressed snapshot
 src/
 ├── main.rs        CLI entry point
 ├── walker.rs      Directory traversal, two-pass budget allocation
-├── compress.rs    Tree-sitter compression engine (13 languages)
+├── compress.rs    Tree-sitter compression engine (10 languages)
 ├── priority.rs    File importance scoring
 ├── tokens.rs      Token estimation
 ├── filters.rs     Secret and binary detection
