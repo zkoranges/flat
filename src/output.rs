@@ -105,7 +105,9 @@ impl Statistics {
         // Add extension breakdown for included files
         if !self.included_by_extension.is_empty() {
             let mut extensions: Vec<_> = self.included_by_extension.iter().collect();
-            extensions.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+            extensions.sort_by(|(a_ext, a_count), (b_ext, b_count)| {
+                b_count.cmp(a_count).then_with(|| a_ext.cmp(b_ext))
+            });
 
             let ext_str = extensions
                 .iter()
@@ -132,7 +134,9 @@ impl Statistics {
             summary.push_str(&format!("Skipped: {}", self.total_skipped()));
 
             let mut reasons: Vec<_> = self.skipped_by_reason.iter().collect();
-            reasons.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+            reasons.sort_by(|(a_reason, a_count), (b_reason, b_count)| {
+                b_count.cmp(a_count).then_with(|| a_reason.cmp(b_reason))
+            });
 
             let reason_str = reasons
                 .iter()
