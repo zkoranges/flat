@@ -597,6 +597,189 @@ fn test_match_backward_compat_regex_alias() {
 }
 
 // ============================================================================
+// Compression Tests
+// ============================================================================
+
+#[test]
+fn test_compress_adds_mode_attribute() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "main.rs",
+        "fn main() {\n    println!(\"hello\");\n}\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should have mode attribute on file tag
+    assert!(stdout.contains("mode=\"compressed\"") || stdout.contains("mode=\"full\""));
+}
+
+#[test]
+fn test_compress_strips_function_body() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "main.rs",
+        "fn hello(name: &str) -> String {\n    let greeting = format!(\"Hello, {}!\", name);\n    greeting\n}\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("fn hello(name: &str) -> String"));
+    assert!(stdout.contains("{ ... }"));
+    assert!(!stdout.contains("let greeting"));
+}
+
+#[test]
+fn test_compress_no_mode_without_flag() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Without --compress, no mode attribute
+    assert!(!stdout.contains("mode="));
+}
+
+#[test]
+fn test_compress_unsupported_gets_full() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "config.toml", "[package]\nname = \"test\"\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Unsupported extension gets full content with mode="full"
+    assert!(stdout.contains("mode=\"full\""));
+    assert!(stdout.contains("[package]"));
+}
+
+#[test]
+fn test_compress_summary_shows_count() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "main.rs",
+        "fn main() {\n    println!(\"hello\");\n}\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("Compressed:"));
+}
+
+#[test]
+fn test_full_match_skips_compression() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "main.rs",
+        "fn main() {\n    println!(\"hello\");\n}\n",
+    );
+    create_test_file(
+        temp_dir.path(),
+        "lib.rs",
+        "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .arg("--full-match")
+        .arg("main.rs")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // main.rs should be full (body preserved)
+    assert!(stdout.contains("println!(\"hello\")"));
+    // lib.rs should be compressed
+    assert!(stdout.contains("pub fn add(a: i32, b: i32) -> i32 { ... }"));
+}
+
+#[test]
+fn test_full_match_without_compress_warns() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--full-match")
+        .arg("*.rs")
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stderr.contains("--full-match has no effect without --compress"));
+    // Should not have mode attribute
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("mode="));
+}
+
+#[test]
+fn test_compress_full_match_all_produces_full_output() {
+    // INV-6: --compress + --full-match '*' should produce same content as no --compress
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "main.rs",
+        "fn main() {\n    println!(\"hello\");\n}\n",
+    );
+
+    let output_full = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .arg("--full-match")
+        .arg("*")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output_full.stdout);
+
+    // All files should have full content
+    assert!(stdout.contains("println!(\"hello\")"));
+    assert!(stdout.contains("mode=\"full\""));
+}
+
+// ============================================================================
 // Edge Cases and Error Handling
 // ============================================================================
 

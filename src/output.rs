@@ -9,6 +9,7 @@ pub struct Statistics {
     pub skipped_by_reason: HashMap<String, usize>,
     pub included_by_extension: HashMap<String, usize>,
     pub output_size: usize,
+    pub compressed_files: usize,
 }
 
 impl Statistics {
@@ -30,6 +31,10 @@ impl Statistics {
         // - Potential newline after content = 1 byte
         let overhead = 25 + path_length;
         self.output_size += file_size as usize + overhead;
+    }
+
+    pub fn add_compressed(&mut self) {
+        self.compressed_files += 1;
     }
 
     pub fn add_skipped(&mut self, reason: SkipReason) {
@@ -119,6 +124,10 @@ impl Statistics {
 
         summary.push('\n');
 
+        if self.compressed_files > 0 {
+            summary.push_str(&format!("Compressed: {} files\n", self.compressed_files));
+        }
+
         if self.total_skipped() > 0 {
             summary.push_str(&format!("Skipped: {}", self.total_skipped()));
 
@@ -167,8 +176,20 @@ impl OutputWriter {
     }
 
     pub fn write_file_content(&mut self, path: &str, content: &str) -> std::io::Result<()> {
+        self.write_file_content_with_mode(path, content, None)
+    }
+
+    pub fn write_file_content_with_mode(
+        &mut self,
+        path: &str,
+        content: &str,
+        mode: Option<&str>,
+    ) -> std::io::Result<()> {
         let escaped_path = escape_xml(path);
-        let opening_tag = format!("<file path=\"{}\">\n", escaped_path);
+        let opening_tag = match mode {
+            Some(m) => format!("<file path=\"{}\" mode=\"{}\">\n", escaped_path, m),
+            None => format!("<file path=\"{}\">\n", escaped_path),
+        };
         self.writer.write_all(opening_tag.as_bytes())?;
         self.bytes_written += opening_tag.len();
 

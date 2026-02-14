@@ -44,6 +44,14 @@ struct Cli {
     /// Maximum file size in bytes (default: 1MB)
     #[arg(long, default_value = "1048576")]
     max_size: u64,
+
+    /// Compress supported source files (extract signatures, strip bodies)
+    #[arg(long)]
+    compress: bool,
+
+    /// Glob patterns for files that should always get full content (requires --compress)
+    #[arg(long, value_delimiter = ',')]
+    full_match: Option<Vec<String>>,
 }
 
 fn main() -> Result<()> {
@@ -63,6 +71,23 @@ fn main() -> Result<()> {
         None => None,
     };
 
+    let full_match_patterns = match cli.full_match {
+        Some(patterns) => {
+            if !cli.compress {
+                eprintln!("Warning: --full-match has no effect without --compress");
+            }
+            let mut compiled = Vec::new();
+            for pattern in &patterns {
+                match Glob::new(pattern) {
+                    Ok(glob) => compiled.push(glob.compile_matcher()),
+                    Err(e) => bail!("Invalid full-match pattern '{}': {}", pattern, e),
+                }
+            }
+            Some(compiled)
+        }
+        None => None,
+    };
+
     let config = Config {
         path: cli.path,
         include_extensions: cli.include,
@@ -73,6 +98,8 @@ fn main() -> Result<()> {
         stats_only: cli.stats,
         gitignore_path: cli.gitignore,
         max_file_size: cli.max_size,
+        compress: cli.compress,
+        full_match_patterns,
     };
 
     let stats = walk_and_flatten(&config)?;
