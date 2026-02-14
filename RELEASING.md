@@ -17,7 +17,7 @@ Update version in `Cargo.toml`:
 ```toml
 [package]
 name = "flat"
-version = "0.1.0"  # Update this
+version = "0.2.0"  # Update this
 ```
 
 ### 2. Test Everything
@@ -41,7 +41,7 @@ cargo build --release
 
 ```bash
 git add Cargo.toml Cargo.lock
-git commit -m "Bump version to 0.1.0"
+git commit -m "Bump version to X.Y.Z"
 git push
 ```
 
@@ -49,10 +49,10 @@ git push
 
 ```bash
 # Create annotated tag
-git tag -a v0.1.0 -m "Release v0.1.0"
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
 
 # Push the tag
-git push origin v0.1.0
+git push origin vX.Y.Z
 ```
 
 ### 5. GitHub Actions Takes Over
@@ -121,9 +121,9 @@ Follow [Semantic Versioning](https://semver.org/):
 - **Patch** (0.0.1): Bug fixes
 
 Examples:
-- `v0.1.0` - First release
-- `v0.1.1` - Bug fix
-- `v0.2.0` - New feature (extension filtering)
+- `v0.2.0` - New feature (compression, token budgets)
+- `v0.2.1` - Bug fix
+- `v0.3.0` - New feature
 - `v1.0.0` - Stable release
 
 ## Checklist
@@ -144,23 +144,6 @@ After releasing:
 - [ ] Both macOS binaries attached
 - [ ] Install script tested
 - [ ] Release announcement (optional)
-
-## First Release
-
-For the very first release (v0.1.0):
-
-```bash
-# Make sure everything is ready
-cargo test --all
-cargo clippy --all-targets -- -D warnings
-
-# Tag and push
-git tag -a v0.1.0 -m "Initial release"
-git push origin v0.1.0
-
-# Wait for GitHub Actions
-# Test install script once complete
-```
 
 ## Notes
 
