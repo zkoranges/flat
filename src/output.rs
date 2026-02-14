@@ -34,7 +34,10 @@ impl Statistics {
 
     pub fn add_skipped(&mut self, reason: SkipReason) {
         self.total_files += 1;
-        *self.skipped_by_reason.entry(reason.to_string()).or_insert(0) += 1;
+        *self
+            .skipped_by_reason
+            .entry(reason.to_string())
+            .or_insert(0) += 1;
     }
 
     pub fn add_output_bytes(&mut self, bytes: usize) {

@@ -1,6 +1,6 @@
 [package]
 name = "flat"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 authors = ["zkoranges"]
 license = "MIT"
@@ -16,6 +16,7 @@ ignore = "0.4"
 walkdir = "2.5"
 anyhow = "1.0"
 content_inspector = "0.2"
+globset = "0.4"
 
 [dev-dependencies]
 assert_cmd = "2.0"

@@ -1,6 +1,7 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::Parser;
 use flat::{walk_and_flatten, Config};
+use globset::Glob;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -19,6 +20,10 @@ struct Cli {
     /// Exclude these file extensions (comma-separated, e.g., test,json)
     #[arg(long, value_delimiter = ',')]
     exclude: Option<Vec<String>>,
+
+    /// Include only files whose name matches a glob pattern (can be repeated, e.g., *_test.go)
+    #[arg(long, alias = "regex")]
+    r#match: Option<Vec<String>>,
 
     /// Write output to file instead of stdout
     #[arg(short, long)]
@@ -44,10 +49,25 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    let match_patterns = match cli.r#match {
+        Some(patterns) => {
+            let mut compiled = Vec::new();
+            for pattern in &patterns {
+                match Glob::new(pattern) {
+                    Ok(glob) => compiled.push(glob.compile_matcher()),
+                    Err(e) => bail!("Invalid match pattern '{}': {}", pattern, e),
+                }
+            }
+            Some(compiled)
+        }
+        None => None,
+    };
+
     let config = Config {
         path: cli.path,
         include_extensions: cli.include,
         exclude_extensions: cli.exclude,
+        match_patterns,
         output_file: cli.output,
         dry_run: cli.dry_run,
         stats_only: cli.stats,

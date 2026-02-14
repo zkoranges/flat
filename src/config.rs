@@ -1,3 +1,4 @@
+use globset::GlobMatcher;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -5,6 +6,7 @@ pub struct Config {
     pub path: PathBuf,
     pub include_extensions: Option<Vec<String>>,
     pub exclude_extensions: Option<Vec<String>>,
+    pub match_patterns: Option<Vec<GlobMatcher>>,
     pub output_file: Option<PathBuf>,
     pub dry_run: bool,
     pub stats_only: bool,
@@ -18,6 +20,7 @@ impl Default for Config {
             path: PathBuf::from("."),
             include_extensions: None,
             exclude_extensions: None,
+            match_patterns: None,
             output_file: None,
             dry_run: false,
             stats_only: false,
@@ -45,11 +48,21 @@ impl Config {
 
         true
     }
+
+    /// Check if a file name matches any of the configured glob patterns.
+    /// Returns true if no patterns are set or if the name matches at least one pattern.
+    pub fn should_include_by_match(&self, file_name: &str) -> bool {
+        match &self.match_patterns {
+            Some(patterns) => patterns.iter().any(|m| m.is_match(file_name)),
+            None => true,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use globset::Glob;
 
     #[test]
     fn test_include_only() {
@@ -86,5 +99,39 @@ mod tests {
         assert!(config.should_include_extension("rs"));
         assert!(!config.should_include_extension("toml")); // Excluded even though included
         assert!(!config.should_include_extension("json"));
+    }
+
+    #[test]
+    fn test_match_no_patterns() {
+        let config = Config::default();
+        assert!(config.should_include_by_match("anything.rs"));
+    }
+
+    #[test]
+    fn test_match_single_pattern() {
+        let config = Config {
+            match_patterns: Some(vec![Glob::new("*_test.go").unwrap().compile_matcher()]),
+            ..Default::default()
+        };
+
+        assert!(config.should_include_by_match("user_test.go"));
+        assert!(config.should_include_by_match("auth_test.go"));
+        assert!(!config.should_include_by_match("main.go"));
+        assert!(!config.should_include_by_match("test.rs"));
+    }
+
+    #[test]
+    fn test_match_multiple_patterns() {
+        let config = Config {
+            match_patterns: Some(vec![
+                Glob::new("*_test.go").unwrap().compile_matcher(),
+                Glob::new("*.spec.js").unwrap().compile_matcher(),
+            ]),
+            ..Default::default()
+        };
+
+        assert!(config.should_include_by_match("user_test.go"));
+        assert!(config.should_include_by_match("button.spec.js"));
+        assert!(!config.should_include_by_match("main.go"));
     }
 }
