@@ -72,6 +72,9 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
         }
     }
 
+    // Sort files by path for deterministic output
+    files_to_process.sort();
+
     // Write output based on mode
     if config.stats_only {
         // Stats only mode - just print statistics

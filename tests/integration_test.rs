@@ -780,6 +780,56 @@ fn test_compress_full_match_all_produces_full_output() {
 }
 
 // ============================================================================
+// Determinism Tests
+// ============================================================================
+
+#[test]
+fn test_output_is_deterministic() {
+    // INV-8: Running flat twice on the same directory produces identical output
+    let output1 = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .output()
+        .expect("Failed to execute command");
+
+    let output2 = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .output()
+        .expect("Failed to execute command");
+
+    assert_eq!(output1.stdout, output2.stdout);
+}
+
+#[test]
+fn test_output_order_sorted_by_path() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create files in non-alphabetical order
+    create_test_file(temp_dir.path(), "c.rs", "fn c() {}");
+    create_test_file(temp_dir.path(), "a.rs", "fn a() {}");
+    create_test_file(temp_dir.path(), "b.rs", "fn b() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--dry-run")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Filter to only file path lines (before summary), not summary content
+    let lines: Vec<&str> = stdout
+        .lines()
+        .take_while(|l| !l.starts_with("<summary>"))
+        .filter(|l| l.ends_with(".rs"))
+        .collect();
+
+    // Files should appear in alphabetical order
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].contains("a.rs"));
+    assert!(lines[1].contains("b.rs"));
+    assert!(lines[2].contains("c.rs"));
+}
+
+// ============================================================================
 // Edge Cases and Error Handling
 // ============================================================================
 
