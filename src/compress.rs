@@ -436,7 +436,7 @@ fn compress_ts_variable(source: &str, node: tree_sitter::Node) -> String {
 
 fn compress_ts_var_inner(source: &str, node: tree_sitter::Node, _cursor: &mut tree_sitter::TreeCursor) -> Option<String> {
     // Walk to find arrow_function children with statement_block bodies
-    fn find_arrow_body(source: &str, node: tree_sitter::Node) -> Option<(usize, usize)> {
+    fn find_arrow_body(node: tree_sitter::Node) -> Option<(usize, usize)> {
         if node.kind() == "arrow_function" {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
@@ -447,14 +447,14 @@ fn compress_ts_var_inner(source: &str, node: tree_sitter::Node, _cursor: &mut tr
         }
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if let Some(range) = find_arrow_body(source, child) {
+            if let Some(range) = find_arrow_body(child) {
                 return Some(range);
             }
         }
         None
     }
 
-    if let Some((body_start, body_end)) = find_arrow_body(source, node) {
+    if let Some((body_start, body_end)) = find_arrow_body(node) {
         let before = &source[node.start_byte()..body_start];
         let after = &source[body_end..node.end_byte()];
         Some(format!("{}{{ ... }}{}", before.trim_end(), after))
@@ -553,16 +553,15 @@ fn compress_python_function_inner(source: &str, node: tree_sitter::Node) -> Stri
     for child in node.children(&mut cursor) {
         if child.kind() == "block" {
             let sig = source[node.start_byte()..child.start_byte()].trim_end();
-            // Check for docstring
+            // Check for docstring (first statement only)
             let mut block_cursor = child.walk();
-            for block_child in child.children(&mut block_cursor) {
+            if let Some(block_child) = child.children(&mut block_cursor).next() {
                 if block_child.kind() == "expression_statement" {
                     let text = node_text(source, block_child);
                     if text.starts_with("\"\"\"") || text.starts_with("'''") {
                         return format!("{}\n    {}\n    ...", sig, text);
                     }
                 }
-                break; // Only check first statement
             }
             return format!("{}\n    ...", sig);
         }

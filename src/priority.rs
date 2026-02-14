@@ -22,7 +22,7 @@ pub fn score_file(path: &Path, base_path: &Path) -> u32 {
     let path_str = relative.to_string_lossy().to_lowercase();
 
     // Check categories in priority order (highest score wins)
-    let base_score = if is_fixture(&path_str) {
+    if is_fixture(&path_str) {
         5
     } else if is_test(&path_str, &file_name) {
         30
@@ -36,9 +36,7 @@ pub fn score_file(path: &Path, base_path: &Path) -> u32 {
         // Source code with depth penalty
         let score = 70u32.saturating_sub((depth as u32) * 10);
         score.max(10)
-    };
-
-    base_score
+    }
 }
 
 fn is_readme(file_name: &str) -> bool {
@@ -137,7 +135,7 @@ mod tests {
     #[test]
     fn test_sorting_order() {
         let base = PathBuf::from("/project");
-        let mut files = vec![
+        let mut files = [
             PathBuf::from("/project/tests/fixture/data.json"),
             PathBuf::from("/project/src/utils.rs"),
             PathBuf::from("/project/README.md"),
