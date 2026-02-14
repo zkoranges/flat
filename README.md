@@ -30,6 +30,7 @@ flat --stats                     # See what would be included
 - Excludes secrets (`.env` files, credentials, API keys)
 - Skips binary files and build artifacts
 - Supports extension-based filtering
+- Glob pattern matching (`--match '*_test.go'`)
 - Fast and memory-efficient (streaming architecture)
 
 ## Why This Tool?
@@ -216,6 +217,26 @@ flat --include py --exclude ipynb
 flat --include md,txt
 ```
 
+### Pattern Matching
+
+Match files by name using glob patterns:
+
+```bash
+# All Go test files (recursive)
+flat --match '*_test.go'
+
+# All JavaScript spec files
+flat --match '*.spec.js'
+
+# Multiple patterns (files matching ANY pattern are included)
+flat --match '*_test.go' --match '*.spec.js'
+
+# Combine with extension filter
+flat --match 'main*' --include rs
+```
+
+**Note:** Always quote patterns to prevent shell expansion.
+
 ### Advanced Options
 
 ```bash
@@ -379,6 +400,7 @@ Arguments:
 Options:
       --include <EXTENSIONS>    Include only these extensions (comma-separated)
       --exclude <EXTENSIONS>    Exclude these extensions (comma-separated)
+      --match <PATTERN>         Include only files matching a glob pattern (repeatable)
   -o, --output <FILE>           Write output to file instead of stdout
       --dry-run                 List files without content
       --stats                   Show statistics only
@@ -401,13 +423,14 @@ Options:
 
 1. **Directory Walking**: Recursively traverses directories starting from the specified path
 2. **Gitignore Filtering**: Applies `.gitignore` rules using the `ignore` crate
-3. **Secret Detection**: Checks filenames and patterns for sensitive data
-4. **Binary Detection**:
+3. **Pattern Matching**: Filters by `--match` glob patterns (if specified)
+4. **Secret Detection**: Checks filenames and patterns for sensitive data
+5. **Binary Detection**:
    - Checks file extensions
    - Reads first 8KB to detect null bytes
-5. **Size Filtering**: Skips files over the size limit
-6. **Extension Filtering**: Applies `--include` and `--exclude` rules
-7. **Output Generation**: Streams results in XML format
+6. **Size Filtering**: Skips files over the size limit
+7. **Extension Filtering**: Applies `--include` and `--exclude` rules
+8. **Output Generation**: Streams results in XML format
 
 **Performance:**
 - Streaming architecture (low memory usage)
@@ -458,6 +481,9 @@ Add filters to narrow down:
 ```bash
 # By extension
 flat --include rs,toml,md
+
+# By file name pattern
+flat --match '*_test.go'
 
 # Exclude unwanted
 flat --exclude test,spec,generated
@@ -671,6 +697,8 @@ flat --dry-run                        # Preview files
 flat --include rs,toml                # Rust project
 flat --include js,jsx,ts,tsx          # React/Next.js
 flat --include py --exclude test      # Python (no tests)
+flat --match '*_test.go'              # Go test files only
+flat --match '*.spec.js'              # JS spec files only
 flat --output code.txt                # Save to file
 flat | pbcopy                         # Copy to clipboard (macOS)
 ```

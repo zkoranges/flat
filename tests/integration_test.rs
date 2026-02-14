@@ -5,7 +5,6 @@ use tempfile::TempDir;
 
 /// Helper to get the flat binary for testing
 fn flat_cmd() -> Command {
-    
     Command::new(env!("CARGO_BIN_EXE_flat"))
 }
 
@@ -271,7 +270,7 @@ fn test_xml_escaping() {
     create_test_file(
         temp_dir.path(),
         "special<chars>.txt",
-        "Content with <tag> & \"quotes\""
+        "Content with <tag> & \"quotes\"",
     );
 
     let output = flat_cmd()
@@ -400,6 +399,201 @@ fn test_js_project_stats() {
         .stderr(predicate::str::contains("Total files:"))
         .stderr(predicate::str::contains("binary"))
         .stderr(predicate::str::contains("secret"));
+}
+
+// ============================================================================
+// Match Pattern Filtering Tests
+// ============================================================================
+
+#[test]
+fn test_match_filter_go_test_pattern() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main.go", "package main");
+    create_test_file(temp_dir.path(), "handler.go", "package main");
+    create_test_file(temp_dir.path(), "main_test.go", "package main");
+    create_test_file(temp_dir.path(), "handler_test.go", "package main");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--match")
+        .arg("*_test.go")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should include test files
+    assert!(stdout.contains("main_test.go"));
+    assert!(stdout.contains("handler_test.go"));
+
+    // Should not include non-test files
+    assert!(!stdout.contains("\"main.go\""));
+    assert!(!stdout.contains("\"handler.go\""));
+}
+
+#[test]
+fn test_match_filter_multiple_patterns() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main.go", "package main");
+    create_test_file(temp_dir.path(), "main_test.go", "package main");
+    create_test_file(temp_dir.path(), "app.spec.js", "describe('app')");
+    create_test_file(temp_dir.path(), "app.js", "const app = {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--match")
+        .arg("*_test.go")
+        .arg("--match")
+        .arg("*.spec.js")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should include files matching either pattern
+    assert!(stdout.contains("main_test.go"));
+    assert!(stdout.contains("app.spec.js"));
+
+    // Should exclude non-matching files
+    assert!(!stdout.contains("\"main.go\""));
+    assert!(!stdout.contains("\"app.js\""));
+}
+
+#[test]
+fn test_match_with_extension_filter() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "lib.rs", "pub fn lib() {}");
+    create_test_file(temp_dir.path(), "main_test.rs", "mod tests {}");
+    create_test_file(temp_dir.path(), "config.toml", "[package]");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--include")
+        .arg("rs")
+        .arg("--match")
+        .arg("main*")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should include only .rs files matching main*
+    assert!(stdout.contains("main.rs"));
+    assert!(stdout.contains("main_test.rs"));
+
+    // lib.rs matches extension but not pattern
+    assert!(!stdout.contains("\"lib.rs\""));
+    // config.toml doesn't match extension
+    assert!(!stdout.contains("config.toml"));
+}
+
+#[test]
+fn test_match_no_matches_exit_code() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--match")
+        .arg("*.xyz")
+        .assert()
+        .failure()
+        .code(3);
+}
+
+#[test]
+fn test_match_invalid_pattern() {
+    flat_cmd()
+        .arg(".")
+        .arg("--match")
+        .arg("[invalid")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_match_dry_run() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main_test.go", "package main");
+    create_test_file(temp_dir.path(), "main.go", "package main");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--match")
+        .arg("*_test.go")
+        .arg("--dry-run")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("main_test.go"));
+    assert!(!stdout.contains("\"main.go\""));
+}
+
+#[test]
+fn test_match_on_sample_project() {
+    // Use glob to match only .rs files in sample_project
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--match")
+        .arg("*.rs")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should include .rs files
+    assert!(stdout.contains("main.rs"));
+    assert!(stdout.contains("lib.rs"));
+
+    // Should not include non-.rs files
+    assert!(!stdout.contains("Cargo.toml"));
+    assert!(!stdout.contains("README.md"));
+}
+
+#[test]
+fn test_match_stats_shows_skips() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main.go", "package main");
+    create_test_file(temp_dir.path(), "main_test.go", "package main");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--match")
+        .arg("*_test.go")
+        .arg("--stats")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("no match"));
+}
+
+#[test]
+fn test_match_backward_compat_regex_alias() {
+    // --regex should still work as an alias for --match
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main_test.go", "package main");
+    create_test_file(temp_dir.path(), "main.go", "package main");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--regex")
+        .arg("*_test.go")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("main_test.go"));
+    assert!(!stdout.contains("\"main.go\""));
 }
 
 // ============================================================================

@@ -1,5 +1,7 @@
 use crate::config::Config;
-use crate::filters::{exceeds_size_limit, is_binary_content, is_binary_extension, is_secret_file, SkipReason};
+use crate::filters::{
+    exceeds_size_limit, is_binary_content, is_binary_extension, is_secret_file, SkipReason,
+};
 use crate::output::{OutputWriter, Statistics};
 use anyhow::{Context, Result};
 use ignore::WalkBuilder;
@@ -105,6 +107,13 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
 
 /// Check if a file should be skipped, returning the reason if so
 fn should_skip(path: &Path, config: &Config) -> Option<SkipReason> {
+    // Check match pattern filter
+    if let Some(file_name) = path.file_name() {
+        if !config.should_include_by_match(&file_name.to_string_lossy()) {
+            return Some(SkipReason::Match);
+        }
+    }
+
     // Check if it's a secret file
     if is_secret_file(path) {
         return Some(SkipReason::Secret);
@@ -178,5 +187,21 @@ mod tests {
             Some(SkipReason::Extension)
         );
         assert_eq!(should_skip(Path::new("file.rs"), &config), None);
+    }
+
+    #[test]
+    fn test_should_skip_match_filter() {
+        let config = Config {
+            match_patterns: Some(vec![globset::Glob::new("*_test.go")
+                .unwrap()
+                .compile_matcher()]),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            should_skip(Path::new("main.go"), &config),
+            Some(SkipReason::Match)
+        );
+        assert_eq!(should_skip(Path::new("user_test.go"), &config), None);
     }
 }

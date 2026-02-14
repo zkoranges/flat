@@ -19,16 +19,11 @@ const SECRET_SUBSTRINGS: &[&str] = &["secret", "password", "credential"];
 /// File extensions that indicate binary/non-text files
 const BINARY_EXTENSIONS: &[&str] = &[
     // Images
-    "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp",
-    // Media
-    "mp4", "mp3", "wav", "avi", "mov", "flac", "ogg",
-    // Archives
-    "zip", "tar", "gz", "7z", "rar", "bz2", "xz",
-    // Binaries
-    "exe", "dll", "so", "dylib", "bin",
-    // Compiled
-    "wasm", "class", "pyc", "o", "a", "lib",
-    // Other
+    "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "webp", // Media
+    "mp4", "mp3", "wav", "avi", "mov", "flac", "ogg", // Archives
+    "zip", "tar", "gz", "7z", "rar", "bz2", "xz", // Binaries
+    "exe", "dll", "so", "dylib", "bin", // Compiled
+    "wasm", "class", "pyc", "o", "a", "lib", // Other
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
 ];
 
@@ -38,6 +33,7 @@ pub enum SkipReason {
     Binary,
     TooLarge,
     Extension,
+    Match,
     Gitignore,
     ReadError,
 }
@@ -49,6 +45,7 @@ impl std::fmt::Display for SkipReason {
             SkipReason::Binary => write!(f, "binary"),
             SkipReason::TooLarge => write!(f, "too large"),
             SkipReason::Extension => write!(f, "extension"),
+            SkipReason::Match => write!(f, "no match"),
             SkipReason::Gitignore => write!(f, "gitignore"),
             SkipReason::ReadError => write!(f, "read error"),
         }
@@ -81,9 +78,7 @@ pub fn is_secret_file(path: &Path) -> bool {
     }
 
     // Check substrings
-    SECRET_SUBSTRINGS
-        .iter()
-        .any(|s| file_name.contains(s))
+    SECRET_SUBSTRINGS.iter().any(|s| file_name.contains(s))
 }
 
 /// Check if a file extension indicates a binary file
