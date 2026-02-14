@@ -1,0 +1,27 @@
+<file path="tests/fixtures/snapshot/sample.ts" mode="compressed">
+import { Request, Response } from 'express';
+interface User {
+  id: number;
+  name: string;
+  email: string;
+}
+type UserID = number | string;
+export function getUser(id: UserID): User { ... }
+class UserService {
+    private cache: Map<number, User> = new Map()
+    async findById(id: number): Promise<User | null> { ... }
+    clearCache(): void { ... }
+}
+const helper = (x: number): number => {
+  return x * 2 + 1;
+};
+</file>
+
+<summary>
+Total files: 8
+Included: 1 (1 .ts)
+Compressed: 1 files
+Skipped: 7 (7 extension)
+Output size: 493 bytes (~123 tokens)
+</summary>
+

@@ -1,704 +1,303 @@
 # flat
 
+[![Crates.io](https://img.shields.io/crates/v/flat.svg)](https://crates.io/crates/flat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![Release](https://img.shields.io/github/v/release/zkoranges/flat)](https://github.com/zkoranges/flat/releases)
 
-A command-line tool to flatten your codebase into a single file for AI context.
-
-**TL;DR:** Copy your entire codebase to share with AI, without secrets or binaries.
+Pack an entire codebase into a single file, ready to paste into any AI.
 
 ```bash
-# Install (macOS)
-brew install zkoranges/tap/flat
-
-# Or without Homebrew
-curl -sSL https://raw.githubusercontent.com/zkoranges/flat/main/install.sh | bash
-
-# Use
-flat | pbcopy                    # Copy everything
-flat --include rs,toml | pbcopy  # Copy only Rust files
-flat --stats                     # See what would be included
-```
-
-## Overview
-
-`flat` recursively processes directories and consolidates your code into a single, structured output for AI context.
-
-**Key Features:**
-- Automatically respects `.gitignore` rules
-- Excludes secrets (`.env` files, credentials, API keys)
-- Skips binary files and build artifacts
-- Supports extension-based filtering
-- Glob pattern matching (`--match '*_test.go'`)
-- Fast and memory-efficient (streaming architecture)
-
-## Why This Tool?
-
-**"Can't I just use `find` and `cat`?"**
-
-Yes, you can. Here's what that looks like:
-
-```bash
-# Naive approach
-find . -type f -name "*.rs" -exec cat {} \;
-
-# Better, but still incomplete
-find . -type f \
-  -not -path "*/target/*" \
-  -not -path "*/.git/*" \
-  -not -path "*/node_modules/*" \
-  -not -name "*.png" \
-  -not -name "*.jpg" \
-  -name "*.rs" \
-  -exec sh -c 'echo "=== {} ===" && cat {}' \;
-```
-
-**The problems:**
-- **Boilerplate**: You need to remember all the exclusion patterns
-- **No gitignore**: Have to manually list every ignored directory
-- **No secret detection**: Easy to accidentally include `.env` or `credentials.json`
-- **No structure**: Output is hard to parse (where does one file end?)
-- **Platform-specific**: Different syntax on macOS vs Linux vs Windows
-- **Error-prone**: One mistake and you leak secrets or include 10MB of dependencies
-
-**What `flat` does differently:**
-- Reads your `.gitignore` automatically (using ripgrep's battle-tested parser)
-- Detects and excludes secrets by pattern matching
-- Detects binary files (extension + content inspection)
-- Wraps output in XML tags for clear file boundaries
-- Works the same on macOS, Linux, and Windows
-- Provides statistics and dry-run mode
-- One command: `flat | pbcopy`
-
-**When to use Unix commands instead:**
-- You only need 2-3 specific files: `cat file1.rs file2.rs`
-- You're on a server without `flat` installed
-- You need a custom one-off filter that `flat` doesn't support
-
-**When to use `flat`:**
-- Sharing code with AI assistants (the primary use case)
-- You want safety (automatic secret exclusion)
-- You want convenience (respects `.gitignore`)
-- You want it to just work
-
-This tool exists because I got tired of manually crafting `find` commands and accidentally including `node_modules/` or `.env` files.
-
-### "But Don't Some AI Tools Already Scan Codebases?"
-
-Yes - but **complete context in one place** is fundamentally different.
-
-**Why it matters:**
-- **Immediate visibility**: All code in the AI's active context window at once. It sees connections between files instantly, not file-by-file.
-- **Better debugging**: When bugs span multiple files, having everything visible helps the AI spot patterns it would miss with on-demand retrieval.
-- **Works everywhere**: Web browsers, mobile apps, API integrations, local LLMs, any tool that accepts text.
-- **Reproducible**: Save the output, use it later, get identical results. No variance from different indexing.
-- **Your control**: You decide exactly what's included. Not the tool's heuristics.
-
-It's the difference between handing someone a complete blueprint versus showing them one room at a time.
-
-## Installation
-
-### Homebrew (macOS)
-
-```bash
-brew install zkoranges/tap/flat
-```
-
-### Quick Install (macOS)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/zkoranges/flat/main/install.sh | bash
-```
-
-This downloads and installs the latest version to `/usr/local/bin/`.
-
-**Note:** If pre-built binaries aren't available yet, the script will automatically build from source (requires Rust).
-
-### Cargo (Rust Users)
-
-If you have Rust installed:
-
-```bash
-# Install from source
-git clone https://github.com/zkoranges/flat.git
-cd flat
-cargo install --path .
-```
-
-### Build from Source
-
-**Prerequisites:**
-- Rust 1.75 or higher
-- Cargo (comes with Rust)
-
-```bash
-git clone https://github.com/zkoranges/flat.git
-cd flat
-cargo build --release
-```
-
-The compiled binary will be at `target/release/flat`.
-
-### System-Wide Installation
-
-```bash
-# After building
-sudo cp target/release/flat /usr/local/bin/
-```
-
-## Quick Start
-
-```bash
-# View statistics about current directory
-flat --stats
-
-# Flatten to stdout
-flat
-
-# Copy to clipboard (macOS)
 flat | pbcopy
-
-# Save to file
-flat --output codebase.txt
-
-# Preview what would be included
-flat --dry-run
 ```
 
-## Usage
+That's it. `.gitignore` respected, secrets stripped, binaries skipped — automatically.
 
-### Basic Commands
+But the real power is fitting *more* code into a context window:
 
 ```bash
-# Process current directory
-flat
-
-# Process specific directory
-flat ./src
-
-# Output to file
-flat --output output.txt
-
-# Show statistics only
-flat --stats
-
-# Preview files without content (dry-run)
-flat --dry-run
+flat --compress --tokens 128000 | pbcopy
 ```
 
-### Extension Filtering
+This **compresses source code to its signatures** (stripping function bodies, keeping structure) and **packs files by priority** until the token budget is full. README and entry points go in first. Test fixtures get cut first.
 
-Filter files by extension (without the leading dot):
+## Install
 
 ```bash
-# Include only specific extensions
-flat --include rs,toml,md
-
-# Exclude specific extensions
-flat --exclude test,spec,json
-
-# Combine filters (exclude takes precedence over include)
-flat --include js,jsx,ts,tsx --exclude test,spec
+brew install zkoranges/tap/flat           # Homebrew
+cargo install --git https://github.com/zkoranges/flat.git   # Cargo
 ```
 
-**Examples:**
-```bash
-# Rust project: source code and config only
-flat --include rs,toml
+## What You Get
 
-# JavaScript/TypeScript: no tests
-flat --include js,jsx,ts,tsx --exclude test,spec
-
-# Python: exclude notebooks
-flat --include py --exclude ipynb
-
-# Documentation only
-flat --include md,txt
 ```
+$ flat src/ --include rs
 
-### Pattern Matching
-
-Match files by name using glob patterns:
-
-```bash
-# All Go test files (recursive)
-flat --match '*_test.go'
-
-# All JavaScript spec files
-flat --match '*.spec.js'
-
-# Multiple patterns (files matching ANY pattern are included)
-flat --match '*_test.go' --match '*.spec.js'
-
-# Combine with extension filter
-flat --match 'main*' --include rs
-```
-
-**Note:** Always quote patterns to prevent shell expansion.
-
-### Advanced Options
-
-```bash
-# Custom file size limit (bytes)
-flat --max-size 10485760  # 10MB instead of default 1MB
-
-# Custom .gitignore file
-flat --gitignore /path/to/custom/.gitignore
-
-# Combine options
-flat ./src --include rs --exclude test --output rust-src.txt
-```
-
-### Output Modes
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Normal** | `flat` | Full file contents to stdout |
-| **File** | `flat --output file.txt` | Write to specified file |
-| **Dry-run** | `flat --dry-run` | List files only, no content |
-| **Stats** | `flat --stats` | Show summary statistics only |
-
-## Output Format
-
-Files are wrapped in XML-style tags:
-
-```xml
-<summary>
-Total files: 45
-Included: 32
-Skipped: 13 (8 binary, 3 too large, 2 secrets)
-</summary>
-
-<file path="src/main.rs">
-fn main() {
-    println!("Hello, world!");
+<file path="src/tokens.rs">
+pub fn estimate_tokens(content: &str, is_prose: bool) -> usize {
+    let byte_count = content.len();
+    if is_prose {
+        byte_count / 4
+    } else {
+        byte_count / 3
+    }
 }
-</file>
 
-<file path="package.json">
-{
-  "name": "my-project",
-  "version": "1.0.0"
+pub fn is_prose_extension(ext: &str) -> bool {
+    matches!(ext.to_lowercase().as_str(), "md" | "txt" | "rst" ...)
 }
 </file>
 ```
 
-**Why XML-style?**
-- Clear file boundaries for AI parsing
-- Easy to grep and search
-- Human-readable
+```
+$ flat src/ --compress --include rs
 
-## Automatic Exclusions
+<file path="src/tokens.rs" mode="compressed">
+pub fn estimate_tokens(content: &str, is_prose: bool) -> usize { ... }
+pub fn is_prose_extension(ext: &str) -> bool { ... }
+</file>
+```
 
-### Secrets (Always Excluded)
+Same file. Same API surface. 60% fewer tokens.
+
+## The Three Powers
+
+flat has three features that compose together. Each is useful alone. Combined, they let you fit any codebase into any context window.
+
+### 1. `--compress` — structural compression
+
+Uses [tree-sitter](https://tree-sitter.github.io/) to parse source files, keep the structure, strip the implementation:
+
+```
+ Kept                              Stripped
+ ─────────────────────────────     ──────────────────────
+ imports, require(), use            function/method bodies
+ type definitions, interfaces      loop contents
+ struct/class declarations         if/else branches
+ function signatures               variable assignments
+ decorators, attributes              inside functions
+ docstrings, comments
+ module-level constants
+ enums, preprocessor directives
+```
+
+**Supported languages:** Rust, TypeScript/JavaScript (JSX/TSX), Python, Go, Java, C#, C, C++, Ruby, PHP.
+
+<details>
+<summary>What each compressor preserves</summary>
+
+| Language | Keeps | Body placeholder |
+|----------|-------|:----------------:|
+| **Rust** | `use`/`mod`/`extern crate`, attributes, macros, structs, enums, trait/impl signatures | `{ ... }` |
+| **TS/JS** (JSX/TSX) | imports, interfaces, type aliases, enums, class member signatures, exports | `{ ... }` |
+| **Python** | imports, docstrings, decorators, class variables, module constants | `...` |
+| **Go** | `package`, imports, type/const/var declarations | `{ ... }` |
+| **Java** | `package`, imports, class/interface/enum declarations, fields, constants | `{ ... }` |
+| **C#** | `using`, namespaces, class/struct/record/interface, properties, events | `{ ... }` |
+| **C** | `#include`/`#define`/preprocessor, typedefs, struct/enum/union | `{ ... }` |
+| **C++** | preprocessor, templates, namespaces, classes with members, `using`/aliases | `{ ... }` |
+| **Ruby** | `require`, assignments, class/module structure | `...\nend` |
+| **PHP** | `<?php`, `use`/`namespace`, class/interface/trait/enum, properties | `{ ... }` |
+
+</details>
+
+Files in other languages pass through in full — nothing is silently dropped. If tree-sitter can't parse a file (syntax errors, unsupported features), the original is included with a stderr warning.
+
+**Real-world results:**
+
+| Codebase | Files | Full | Compressed | Reduction |
+|----------|------:|-----:|-----------:|----------:|
+| [Express](https://github.com/expressjs/express) | 6 | 61 KB | 28 KB | **54%** |
+| [Flask](https://github.com/pallets/flask) | 24 | 339 KB | 214 KB | **37%** |
+| [Next.js](https://github.com/vercel/next.js) `packages/next/src` | 1,605 | 8.0 MB | 5.6 MB | **31%** |
+
+### 2. `--tokens N` — token budget
+
+Caps output to fit a context window. Files are scored by importance and packed greedily — high-value files first, low-value files dropped:
+
+| Priority | Score | Examples |
+|----------|------:|---------|
+| README | 100 | `README.md`, `README.rst` |
+| Entry points | 90 | `main.rs`, `index.ts`, `app.py` |
+| Config | 80 | `Cargo.toml`, `package.json`, `tsconfig.json` |
+| Source | 70* | `handler.rs`, `utils.ts` *(decreases with nesting depth)* |
+| Tests | 30 | `*_test.go`, `test_*.py` |
+| Fixtures | 5 | `tests/fixtures/*`, `__snapshots__/*` |
+
+### 3. `--full-match GLOB` — selective full content
+
+When compressing, keep specific files in full:
+
+```bash
+flat --compress --full-match 'app.py'
+```
+
+`app.py` gets `mode="full"` with complete source. Everything else gets `mode="compressed"` with signatures only. Useful when you want a project overview but need complete implementation detail in the file you're debugging.
+
+## Composing Flags
+
+**Every combination works.** Flags operate in a pipeline — filters narrow the file set, transforms shape the content, output controls the format:
+
+```
+  Filters (narrow files)          Transforms (shape content)       Output
+  ─────────────────────           ──────────────────────────       ──────
+  --include / --exclude           --compress                       (stdout)
+  --match                         --full-match                     -o FILE
+  --max-size                      --tokens                         --dry-run
+  --gitignore                                                      --stats
+```
+
+All filters compose with all transforms and all output modes. Here's what each transform combination does:
+
+```
+  flat                                    Full content
+  flat --compress                         Signatures only
+  flat --tokens 8000                      Full content, capped to budget
+  flat --compress --tokens 8000           Signatures, capped to budget
+  flat --compress --full-match '*.rs'     Matched files full, rest compressed
+  flat --compress --full-match '*.rs' \
+       --tokens 8000                      The full pipeline (see below)
+```
+
+### The full pipeline
+
+```bash
+flat src/ \
+  --include py \
+  --compress \
+  --full-match 'app.py' \
+  --tokens 30000
+```
+
+Here's what happens:
+
+1. **Filter** — walk `src/`, keep only `.py` files
+2. **Score** — rank every file by importance (README=100, entry points=90, ...)
+3. **Allocate** — `app.py` matches `--full-match`, so reserve its full content first
+4. **Fill** — pack remaining files in priority order, compressing each to save space
+5. **Cut** — when the 30k token budget is full, exclude the rest
+
+Preview the result without generating output:
+
+```
+$ flat src/ --include py --compress --full-match 'app.py' --tokens 30000 --dry-run
+
+flask/app.py [FULL]
+flask/config.py [COMPRESSED]
+flask/__init__.py [COMPRESSED]
+flask/blueprints.py [COMPRESSED]
+flask/cli.py [EXCLUDED]
+flask/ctx.py [EXCLUDED]
+...
+Token budget: 29.8k / 30.0k used
+Excluded by budget: 16 files
+```
+
+`app.py` is in full (you can debug it). The most important modules are compressed (you can see the API surface). Low-priority files are cut. Everything fits in 30k tokens.
+
+### What `--full-match` does NOT do
+
+`--full-match` does not override the token budget. If `app.py` is 20k tokens and your budget is 10k, `app.py` gets excluded — the budget is a hard ceiling. This is intentional: if flat silently overran the budget, you'd overflow context windows.
+
+## Filtering
+
+```bash
+flat --include rs,toml,md             # only these extensions
+flat --exclude test,spec,lock         # skip these extensions
+flat --match '*_test.go'              # glob on filename (repeatable)
+flat --max-size 10M                   # increase size limit to 10 MiB
+```
+
+Numeric arguments accept single-letter suffixes: `k`/`K` (thousands), `M` (millions/mebibytes), `G` (billions/gibibytes).
+
+Filters compose: `--include`/`--exclude` operate on extensions, `--match` operates on filenames. They all apply before compression and budget allocation.
+
+## Output Modes
+
+| Flag | Output |
+|------|--------|
+| *(none)* | XML-wrapped file contents to stdout |
+| `-o FILE` | Same, written to a file |
+| `--dry-run` | File list only, no content |
+| `--stats` | Summary statistics only |
+| `--dry-run` + `--tokens` | File list annotated `[FULL]` / `[COMPRESSED]` / `[EXCLUDED]` |
+
+## Performance
+
+The entire Next.js monorepo — 25,000+ files — processes in under 3 seconds:
+
+```
+$ time flat /path/to/nextjs --compress --stats
+
+Included: 24,327
+Compressed: 19,771 files
+Skipped: 894
+
+real    0m2.883s
+```
+
+Without `--tokens`, compression streams file-by-file (constant memory). With `--tokens`, all candidate files are buffered for scoring — but even that is fast.
+
+## Safety
+
+Secrets are **always** excluded — no flag needed:
 
 | Pattern | Examples |
 |---------|----------|
-| `.env*` files | `.env`, `.env.local`, `.env.production` |
-| Key files | `*.key`, `*.pem`, `*.p12`, `*.pfx` |
-| SSH keys | `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519` |
+| Environment | `.env`, `.env.local`, `.env.production` |
+| Keys | `*.key`, `*.pem`, `*.p12`, `*.pfx` |
+| SSH | `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519` |
 | Credentials | `credentials.json`, `serviceAccount.json` |
-| Pattern matching | Any file containing `secret`, `password`, or `credential` |
 
-### Binary Files (Always Excluded)
+Binary files are always excluded (images, media, archives, executables, compiled artifacts). All `.gitignore` patterns are respected via [ripgrep's parser](https://github.com/BurntSushi/ripgrep).
 
-| Type | Extensions |
-|------|-----------|
-| Images | `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.ico`, `.svg`, `.webp` |
-| Media | `.mp4`, `.mp3`, `.wav`, `.avi`, `.mov`, `.flac`, `.ogg` |
-| Archives | `.zip`, `.tar`, `.gz`, `.7z`, `.rar`, `.bz2`, `.xz` |
-| Executables | `.exe`, `.dll`, `.so`, `.dylib`, `.bin` |
-| Compiled | `.wasm`, `.class`, `.pyc`, `.o`, `.a`, `.lib` |
-| Documents | `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx` |
+> Use `--dry-run` to preview before sharing code with any external service.
 
-### Gitignore Patterns
-
-All patterns in `.gitignore` are respected:
-- `node_modules/`
-- `dist/`, `build/`, `target/`
-- `*.log`
-- Custom patterns
-
-### Size Limits
-
-Files larger than **1MB** are skipped by default.
-- Configurable with `--max-size <bytes>`
-
-## Real-World Workflows
-
-### "Help me debug this React app"
+## Recipes
 
 ```bash
-# Check what will be shared
-flat --include js,jsx,ts,tsx --stats
+# The basics
+flat | pbcopy                                    # everything, to clipboard
+flat --include rs,toml | pbcopy                  # just Rust files
+flat --stats                                     # preview before copying
 
-# Copy source to clipboard (excludes tests, node_modules, .env automatically)
-flat --include js,jsx,ts,tsx --exclude test,spec,stories | pbcopy
+# Compression
+flat --compress | pbcopy                         # structural overview
+flat --compress --full-match 'main.rs' | pbcopy  # overview + one file in full
 
-# Paste into AI → "Here's my React app, help me fix the routing bug"
+# Token budgets
+flat --compress --tokens 100k | pbcopy            # fit into 100k context
+flat --compress --tokens 8k --dry-run             # preview what fits
+
+# Targeted
+flat src/api --include ts --exclude spec          # just the API layer
+flat --match '*_test.go' | pbcopy                 # only test files
+flat src/ --compress --full-match 'handler.rs'    # debug one file in context
+
+# Save to file
+flat --compress -o snapshot.xml                   # compressed snapshot
 ```
 
-### "Review my Rust code"
-
-```bash
-# Preview files
-flat --include rs,toml --dry-run
-
-# Copy just the source
-flat --include rs,toml | pbcopy
-
-# Or save for later
-flat --include rs,toml --output review.txt
-```
-
-### "Explain this Python project"
-
-```bash
-# Quick stats
-flat --stats
-
-# Get all Python (auto-excludes .pyc, __pycache__, .env)
-flat --include py | pbcopy
-
-# Or exclude tests and notebooks
-flat --include py --exclude test,ipynb | pbcopy
-```
-
-### "Document this API"
-
-```bash
-# Get just the docs
-flat --include md --output docs.txt
-
-# Or API routes + config
-flat --include js,json --dry-run  # preview first
-flat --include js,json | pbcopy
-```
-
-### Before Sharing: Check What's Included
-
-```bash
-# Always run this first
-flat --stats
-
-# See file list without content
-flat --dry-run
-
-# Verify secrets are excluded
-flat --dry-run | grep -i "\.env\|secret\|credential"  # Should be empty
-```
-
-## Command Reference
-
-```
-flat [OPTIONS] [PATH]
-
-Arguments:
-  [PATH]  Directory to process (default: current directory)
-
-Options:
-      --include <EXTENSIONS>    Include only these extensions (comma-separated)
-      --exclude <EXTENSIONS>    Exclude these extensions (comma-separated)
-      --match <PATTERN>         Include only files matching a glob pattern (repeatable)
-  -o, --output <FILE>           Write output to file instead of stdout
-      --dry-run                 List files without content
-      --stats                   Show statistics only
-      --gitignore <PATH>        Use custom .gitignore file
-      --max-size <BYTES>        Maximum file size [default: 1048576]
-  -h, --help                    Print help
-  -V, --version                 Print version
-```
-
-## Exit Codes
-
-| Code | Meaning | Explanation |
-|------|---------|-------------|
-| `0` | Success | Files were processed successfully |
-| `1` | Invalid arguments | Check command syntax |
-| `2` | File I/O error | Permission or disk issues |
-| `3` | No files matched | All files were filtered out |
-
-## How It Works
-
-1. **Directory Walking**: Recursively traverses directories starting from the specified path
-2. **Gitignore Filtering**: Applies `.gitignore` rules using the `ignore` crate
-3. **Pattern Matching**: Filters by `--match` glob patterns (if specified)
-4. **Secret Detection**: Checks filenames and patterns for sensitive data
-5. **Binary Detection**:
-   - Checks file extensions
-   - Reads first 8KB to detect null bytes
-6. **Size Filtering**: Skips files over the size limit
-7. **Extension Filtering**: Applies `--include` and `--exclude` rules
-8. **Output Generation**: Streams results in XML format
-
-**Performance:**
-- Streaming architecture (low memory usage)
-- Early filtering (minimal disk I/O)
-- Efficient for projects of any size
-
-## Troubleshooting
-
-### "No files matched the criteria" (Exit Code 3)
-
-All files were filtered out. Check:
-
-```bash
-# See what's being skipped
-flat --dry-run
-
-# View statistics
-flat --stats
-
-# Try without filters
-flat
-```
-
-### Expected Files Are Missing
-
-Files may be excluded because they're:
-1. In `.gitignore`
-2. Secret files (`.env`, `*.key`, etc.)
-3. Binary files
-4. Over size limit (default 1MB)
-
-**Debug:**
-```bash
-# Check what's included
-flat --dry-run
-
-# Increase size limit
-flat --max-size 10485760
-
-# Check gitignore
-cat .gitignore
-```
-
-### Too Many Files Included
-
-Add filters to narrow down:
-
-```bash
-# By extension
-flat --include rs,toml,md
-
-# By file name pattern
-flat --match '*_test.go'
-
-# Exclude unwanted
-flat --exclude test,spec,generated
-```
-
-## FAQ
-
-**Q: Does this work with monorepos?**
-A: Yes. Point it at the specific package:
-```bash
-flat packages/backend --include ts
-```
-
-**Q: What about symlinks?**
-A: Symbolic links are followed by default.
-
-**Q: Does it work on Windows?**
-A: Yes, the tool is cross-platform (uses Rust's `std::path`).
-
-**Q: How do I exclude a specific directory?**
-A: Add it to `.gitignore`, or use extension filters to select only what you want.
-
-**Q: Can I use this in CI/CD?**
-A: Yes:
-```bash
-flat --output codebase.txt || exit 1
-```
-
-**Q: What if I have a custom .gitignore location?**
-A: Use `--gitignore <path>` to specify a custom file.
-
-**Q: Does it handle UTF-8?**
-A: Yes, all files are read as UTF-8 text.
-
-## Technical Details
-
-### Dependencies
-
-- `clap` - CLI argument parsing
-- `ignore` - Gitignore handling (from ripgrep)
-- `walkdir` - Directory traversal
-- `anyhow` - Error handling
-- `content_inspector` - Binary detection
-
-### Architecture
+## Project
 
 ```
 src/
-├── main.rs      CLI interface and argument parsing
-├── lib.rs       Public library interface
-├── config.rs    Configuration management
-├── filters.rs   Secret and binary detection
-├── output.rs    XML formatting and statistics
-└── walker.rs    Directory traversal and filtering
+├── main.rs        CLI entry point
+├── walker.rs      Directory traversal, two-pass budget allocation
+├── compress.rs    Tree-sitter compression engine (10 languages)
+├── priority.rs    File importance scoring
+├── tokens.rs      Token estimation
+├── filters.rs     Secret and binary detection
+├── output.rs      XML formatting and statistics
+├── config.rs      Configuration
+└── lib.rs         Public API
 ```
 
-### Testing
+139 tests (64 unit + 75 integration), validated against Flask, FastAPI, Express, and Next.js.
 
 ```bash
-# Run all tests
-cargo test
-
-# Run specific test
-cargo test test_secret_exclusion
-
-# With output
-cargo test -- --nocapture
-
-# Integration tests only
-cargo test --test integration_test
+cargo test --all && cargo clippy --all-targets -- -D warnings
 ```
-
-**Test Coverage:**
-- 10 unit tests
-- 25 integration tests
-- Tests for: secrets, binaries, gitignore, filters, output modes
-
-### Code Quality
-
-```bash
-# Lint with clippy
-cargo clippy -- -D warnings
-
-# Format code
-cargo fmt
-
-# Check formatting
-cargo fmt -- --check
-```
-
-## Development
-
-### Project Structure
-
-```
-flat/
-├── Cargo.toml
-├── src/
-│   ├── main.rs       # CLI entry point (62 lines)
-│   ├── lib.rs        # Public API (6 lines)
-│   ├── config.rs     # Config (85 lines)
-│   ├── filters.rs    # Filtering (152 lines)
-│   ├── output.rs     # Output (85 lines)
-│   └── walker.rs     # Walking (169 lines)
-├── tests/
-│   ├── integration_test.rs        # 25 integration tests
-│   └── fixtures/
-│       ├── sample_project/        # Rust test project
-│       └── js_project/            # JavaScript test project
-└── README.md
-```
-
-### Running Tests
-
-All tests must pass before committing:
-
-```bash
-cargo test --all
-```
-
-### Adding Features
-
-1. Write tests first
-2. Implement feature
-3. Run `cargo test`
-4. Run `cargo clippy -- -D warnings`
-5. Run `cargo fmt`
-
-## Limitations
-
-- **Text Files Only**: Binary files are automatically skipped
-- **Size Limit**: Files >1MB skipped by default (configurable)
-- **UTF-8 Only**: Non-UTF-8 files will cause errors
-- **Memory**: Very large single files may use significant memory when reading
-
-## Security
-
-**Automatic Secret Exclusion:**
-- Never includes `.env` files
-- Never includes credential files
-- Pattern-based detection for common secrets
-
-**Caution:**
-- Always review output before sharing
-- Check that `.gitignore` is configured properly
-- Use `--dry-run` to preview what will be included
-
-**Not a replacement for:**
-- Proper secret management
-- Security audits
-- Code review
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Credits
-
-- Built with Rust
-- Uses the `ignore` crate from ripgrep for gitignore handling
-- CLI powered by `clap`
-
----
-
-## Best Practices
-
-**Before you `| pbcopy`:**
-```bash
-# 1. Check stats first (are you about to copy 500 files?)
-flat --stats
-
-# 2. Preview the file list
-flat --dry-run
-
-# 3. Look for anything unexpected
-flat --dry-run | grep -i "secret\|password\|node_modules"
-```
-
-**For large projects:**
-```bash
-# Don't copy the entire monorepo
-flat | pbcopy  # ❌ Too much context
-
-# Be specific about what you need
-flat packages/backend --include ts,json | pbcopy  # ✅ Just the backend
-flat src/components --include tsx,css | pbcopy    # ✅ Just components
-```
-
-**Common workflows:**
-```bash
-# The usual flow
-flat --stats                          # See what you have
-flat --include rs,toml --dry-run      # Preview
-flat --include rs,toml | pbcopy       # Copy
-# → Paste into AI
-
-# Debug a specific directory
-flat src/auth --include ts | pbcopy
-
-# Share only API routes
-flat --include ts --exclude test,spec,stories | pbcopy
-
-# Get everything except tests
-flat --exclude test,spec,mock | pbcopy
-```
-
-**Command Cheat Sheet:**
-```bash
-flat --stats                          # Quick overview
-flat --dry-run                        # Preview files
-flat --include rs,toml                # Rust project
-flat --include js,jsx,ts,tsx          # React/Next.js
-flat --include py --exclude test      # Python (no tests)
-flat --match '*_test.go'              # Go test files only
-flat --match '*.spec.js'              # JS spec files only
-flat --output code.txt                # Save to file
-flat | pbcopy                         # Copy to clipboard (macOS)
-```
+MIT — see [LICENSE](LICENSE).

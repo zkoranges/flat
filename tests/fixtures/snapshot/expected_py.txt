@@ -1,0 +1,28 @@
+<file path="tests/fixtures/snapshot/sample.py" mode="compressed">
+import os
+from pathlib import Path
+from typing import Optional
+MAX_RETRIES = 3
+class Processor:
+    """Processes data files."""
+    default_timeout = 30
+    def __init__(self, path: str):
+        """Initialize with path."""
+        ...
+    def process(self, data: bytes) -> Optional[str]:
+        """Process raw data into a string."""
+        ...
+@staticmethod
+def standalone_function(a: int, b: int) -> int:
+    """Add two numbers."""
+    ...
+</file>
+
+<summary>
+Total files: 8
+Included: 1 (1 .py)
+Compressed: 1 files
+Skipped: 7 (7 extension)
+Output size: 519 bytes (~129 tokens)
+</summary>
+

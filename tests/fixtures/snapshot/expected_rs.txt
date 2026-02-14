@@ -1,0 +1,32 @@
+<file path="tests/fixtures/snapshot/sample.rs" mode="compressed">
+use std::collections::HashMap;
+const VERSION: &str = "1.0";
+/// A documented struct
+
+#[derive(Debug, Clone)]
+struct Config {
+    name: String,
+    values: HashMap<String, i32>,
+}
+/// Creates a new config
+
+pub fn create_config(name: &str) -> Config { ... }
+impl Config {
+    /// Gets a value
+
+    pub fn get(&self, key: &str) -> Option<&i32> { ... }
+    fn internal_helper(&self) -> bool { ... }
+}
+trait Validator {
+    fn validate(&self) -> bool { ... }
+}
+</file>
+
+<summary>
+Total files: 8
+Included: 1 (1 .rs)
+Compressed: 1 files
+Skipped: 7 (7 extension)
+Output size: 531 bytes (~132 tokens)
+</summary>
+

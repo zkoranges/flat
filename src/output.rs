@@ -9,6 +9,10 @@ pub struct Statistics {
     pub skipped_by_reason: HashMap<String, usize>,
     pub included_by_extension: HashMap<String, usize>,
     pub output_size: usize,
+    pub compressed_files: usize,
+    pub token_budget: Option<usize>,
+    pub tokens_used: usize,
+    pub excluded_by_budget: Vec<String>,
 }
 
 impl Statistics {
@@ -30,6 +34,10 @@ impl Statistics {
         // - Potential newline after content = 1 byte
         let overhead = 25 + path_length;
         self.output_size += file_size as usize + overhead;
+    }
+
+    pub fn add_compressed(&mut self) {
+        self.compressed_files += 1;
     }
 
     pub fn add_skipped(&mut self, reason: SkipReason) {
@@ -100,7 +108,9 @@ impl Statistics {
         // Add extension breakdown for included files
         if !self.included_by_extension.is_empty() {
             let mut extensions: Vec<_> = self.included_by_extension.iter().collect();
-            extensions.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+            extensions.sort_by(|(a_ext, a_count), (b_ext, b_count)| {
+                b_count.cmp(a_count).then_with(|| a_ext.cmp(b_ext))
+            });
 
             let ext_str = extensions
                 .iter()
@@ -119,11 +129,17 @@ impl Statistics {
 
         summary.push('\n');
 
+        if self.compressed_files > 0 {
+            summary.push_str(&format!("Compressed: {} files\n", self.compressed_files));
+        }
+
         if self.total_skipped() > 0 {
             summary.push_str(&format!("Skipped: {}", self.total_skipped()));
 
             let mut reasons: Vec<_> = self.skipped_by_reason.iter().collect();
-            reasons.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
+            reasons.sort_by(|(a_reason, a_count), (b_reason, b_count)| {
+                b_count.cmp(a_count).then_with(|| a_reason.cmp(b_reason))
+            });
 
             let reason_str = reasons
                 .iter()
@@ -135,13 +151,35 @@ impl Statistics {
             summary.push('\n');
         }
 
-        // Add output size and token estimate if there's output
-        if self.output_size > 0 {
+        // Add token budget info
+        if let Some(budget) = self.token_budget {
             summary.push_str(&format!(
-                "Output size: {} (~{} tokens)\n",
-                Self::format_bytes(self.output_size),
-                Self::format_tokens(self.estimated_tokens())
+                "Token budget: {} / {} used\n",
+                Self::format_tokens(self.tokens_used),
+                Self::format_tokens(budget)
             ));
+            if !self.excluded_by_budget.is_empty() {
+                summary.push_str(&format!(
+                    "Excluded by budget: {} files\n",
+                    self.excluded_by_budget.len()
+                ));
+            }
+        }
+
+        // Add output size (skip token estimate when budget is active to avoid confusion)
+        if self.output_size > 0 {
+            if self.token_budget.is_some() {
+                summary.push_str(&format!(
+                    "Output size: {}\n",
+                    Self::format_bytes(self.output_size),
+                ));
+            } else {
+                summary.push_str(&format!(
+                    "Output size: {} (~{} tokens)\n",
+                    Self::format_bytes(self.output_size),
+                    Self::format_tokens(self.estimated_tokens())
+                ));
+            }
         }
 
         summary.push_str("</summary>\n");
@@ -167,8 +205,20 @@ impl OutputWriter {
     }
 
     pub fn write_file_content(&mut self, path: &str, content: &str) -> std::io::Result<()> {
+        self.write_file_content_with_mode(path, content, None)
+    }
+
+    pub fn write_file_content_with_mode(
+        &mut self,
+        path: &str,
+        content: &str,
+        mode: Option<&str>,
+    ) -> std::io::Result<()> {
         let escaped_path = escape_xml(path);
-        let opening_tag = format!("<file path=\"{}\">\n", escaped_path);
+        let opening_tag = match mode {
+            Some(m) => format!("<file path=\"{}\" mode=\"{}\">\n", escaped_path, m),
+            None => format!("<file path=\"{}\">\n", escaped_path),
+        };
         self.writer.write_all(opening_tag.as_bytes())?;
         self.bytes_written += opening_tag.len();
 
