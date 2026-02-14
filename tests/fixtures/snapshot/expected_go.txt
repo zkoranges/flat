@@ -1,0 +1,23 @@
+<file path="tests/fixtures/snapshot/sample.go" mode="compressed">
+package main
+import (
+    "fmt"
+    "strings"
+)
+type Server struct {
+    Host string
+    Port int
+}
+func NewServer(host string, port int) *Server { ... }
+func (s *Server) Start() error { ... }
+func formatName(first, last string) string { ... }
+</file>
+
+<summary>
+Total files: 8
+Included: 1 (1 .go)
+Compressed: 1 files
+Skipped: 7 (7 extension)
+Output size: 814 bytes (~203 tokens)
+</summary>
+

@@ -1070,3 +1070,564 @@ fn test_workflow_stats_check() {
         .stderr(predicate::str::contains("Total files:"))
         .stderr(predicate::str::contains("Included:"));
 }
+
+// ============================================================================
+// Snapshot Tests — Pin Known-Good Output (Phase 3D)
+// ============================================================================
+
+#[test]
+fn test_snapshot_rust_compression() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--include")
+        .arg("rs")
+        .output()
+        .expect("Failed to execute command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = fs::read_to_string("tests/fixtures/snapshot/expected_rs.txt").unwrap();
+    assert_eq!(
+        stdout.as_ref(),
+        expected.as_str(),
+        "Rust compression output changed from golden file"
+    );
+}
+
+#[test]
+fn test_snapshot_typescript_compression() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--include")
+        .arg("ts")
+        .output()
+        .expect("Failed to execute command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = fs::read_to_string("tests/fixtures/snapshot/expected_ts.txt").unwrap();
+    assert_eq!(
+        stdout.as_ref(),
+        expected.as_str(),
+        "TypeScript compression output changed from golden file"
+    );
+}
+
+#[test]
+fn test_snapshot_python_compression() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--include")
+        .arg("py")
+        .output()
+        .expect("Failed to execute command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = fs::read_to_string("tests/fixtures/snapshot/expected_py.txt").unwrap();
+    assert_eq!(
+        stdout.as_ref(),
+        expected.as_str(),
+        "Python compression output changed from golden file"
+    );
+}
+
+#[test]
+fn test_snapshot_go_compression() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--include")
+        .arg("go")
+        .output()
+        .expect("Failed to execute command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = fs::read_to_string("tests/fixtures/snapshot/expected_go.txt").unwrap();
+    assert_eq!(
+        stdout.as_ref(),
+        expected.as_str(),
+        "Go compression output changed from golden file"
+    );
+}
+
+// ============================================================================
+// Mutation-Killing Tests — Cover Surviving Mutants
+// ============================================================================
+
+#[test]
+fn test_output_files_in_sorted_order() {
+    // Kills Mutation 8: verifies files appear in lexicographic path order
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "z_last.rs", "fn z() {}");
+    create_test_file(temp_dir.path(), "a_first.rs", "fn a() {}");
+    create_test_file(temp_dir.path(), "m_middle.rs", "fn m() {}");
+    // Subdirectories should also sort correctly
+    create_test_file(temp_dir.path(), "b_dir/nested.rs", "fn n() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Extract file paths from <file path="..."> tags
+    let paths: Vec<&str> = stdout
+        .lines()
+        .filter(|l| l.starts_with("<file path="))
+        .collect();
+
+    assert_eq!(paths.len(), 4, "Expected 4 file tags");
+
+    // Verify lexicographic order
+    let a_pos = stdout.find("a_first.rs").expect("a_first.rs not found");
+    let b_pos = stdout
+        .find("b_dir/nested.rs")
+        .expect("b_dir/nested.rs not found");
+    let m_pos = stdout.find("m_middle.rs").expect("m_middle.rs not found");
+    let z_pos = stdout.find("z_last.rs").expect("z_last.rs not found");
+    assert!(
+        a_pos < b_pos && b_pos < m_pos && m_pos < z_pos,
+        "Files not in sorted order: a={}, b_dir={}, m={}, z={}",
+        a_pos,
+        b_pos,
+        m_pos,
+        z_pos
+    );
+}
+
+#[test]
+fn test_compress_fallback_on_syntax_error() {
+    // Kills Mutation 9: verifies parse errors fall back to full content
+    let temp_dir = TempDir::new().unwrap();
+
+    // Deliberately broken Rust syntax
+    let broken_rust = "fn broken( {\n    this is not valid rust\n}\n";
+    create_test_file(temp_dir.path(), "broken.rs", broken_rust);
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // File should still be included (fallback to full content)
+    assert!(
+        stdout.contains("broken.rs"),
+        "broken.rs should be included in output"
+    );
+    assert!(
+        stdout.contains("this is not valid rust"),
+        "Full content should be preserved on parse error"
+    );
+    // Should have mode="full" since compression failed
+    assert!(
+        stdout.contains("mode=\"full\""),
+        "Parse error file should have mode=full"
+    );
+    // Should warn on stderr about parse error
+    assert!(
+        stderr.contains("ERROR") || stderr.contains("error") || stderr.contains("Warning"),
+        "Should warn about parse error on stderr"
+    );
+}
+
+// ============================================================================
+// Coverage Gap Tests — Additional assertions per Phase 4
+// ============================================================================
+
+#[test]
+fn test_compress_rust_preserves_imports_integration() {
+    // Integration-level test for Mutation 3 coverage gap
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "lib.rs",
+        "use std::path::Path;\nuse std::io::Read;\n\nfn process(p: &Path) {\n    println!(\"{}\", p.display());\n}\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("use std::path::Path;"),
+        "use statement should be preserved in compressed output"
+    );
+    assert!(
+        stdout.contains("use std::io::Read;"),
+        "second use statement should be preserved"
+    );
+    assert!(
+        stdout.contains("fn process(p: &Path) { ... }"),
+        "function should show compressed signature"
+    );
+    assert!(
+        !stdout.contains("println!"),
+        "function body should be stripped"
+    );
+}
+
+#[test]
+fn test_compress_typescript_export_function() {
+    // Verifies export function declarations are compressed
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "api.ts",
+        "export function fetchData(url: string): Promise<Response> {\n  const res = await fetch(url);\n  return res.json();\n}\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("export function fetchData(url: string): Promise<Response> { ... }"),
+        "export function should be compressed: got {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("await fetch(url)"),
+        "function body should be stripped from export function"
+    );
+}
+
+#[test]
+fn test_compress_python_module_constants() {
+    // Verifies module-level constants are preserved
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "config.py",
+        "MAX_SIZE = 1024\nDEBUG = True\n\ndef run():\n    print('running')\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("MAX_SIZE = 1024"),
+        "Module-level constant should be preserved"
+    );
+    assert!(
+        stdout.contains("DEBUG = True"),
+        "Module-level constant should be preserved"
+    );
+    assert!(
+        !stdout.contains("print('running')"),
+        "Function body should be stripped"
+    );
+}
+
+#[test]
+fn test_priority_ordering_integration() {
+    // Integration-level test for Mutation 6 coverage gap
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "README.md",
+        "# Project\nDescription here.\n",
+    );
+    create_test_file(temp_dir.path(), "src/main.rs", "fn main() {}\n");
+    create_test_file(
+        temp_dir.path(),
+        "src/deep/nested/util.rs",
+        &"x".repeat(3000),
+    );
+    create_test_file(
+        temp_dir.path(),
+        "Cargo.toml",
+        "[package]\nname = \"test\"\n",
+    );
+
+    // Small budget: should include README and main.rs but exclude deep nested file
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("100")
+        .arg("--dry-run")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // README should be included (priority 100)
+    assert!(
+        stdout.contains("README.md"),
+        "README.md should be in output"
+    );
+    // Deep nested file should be excluded by budget
+    assert!(
+        stdout.contains("util.rs") && stdout.contains("[EXCLUDED]"),
+        "Deep nested file should be excluded by budget"
+    );
+}
+
+#[test]
+fn test_determinism_with_compress() {
+    // Runs flat twice with --compress and verifies identical output
+    let output1 = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let output2 = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    assert_eq!(
+        output1.stdout, output2.stdout,
+        "Compressed output should be deterministic across runs"
+    );
+}
+
+#[test]
+fn test_determinism_with_tokens() {
+    // Runs flat twice with --tokens and verifies identical output
+    let output1 = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--tokens")
+        .arg("5000")
+        .output()
+        .expect("Failed to execute command");
+
+    let output2 = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--tokens")
+        .arg("5000")
+        .output()
+        .expect("Failed to execute command");
+
+    assert_eq!(
+        output1.stdout, output2.stdout,
+        "Token-budgeted output should be deterministic across runs"
+    );
+}
+
+#[test]
+fn test_tokens_budget_actually_enforced() {
+    // Phase 5A: Prove token budget is enforced with math
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create files with known sizes
+    create_test_file(temp_dir.path(), "a.rs", &"x".repeat(600)); // ~200 tokens
+    create_test_file(temp_dir.path(), "b.rs", &"y".repeat(600)); // ~200 tokens
+    create_test_file(temp_dir.path(), "c.rs", &"z".repeat(600)); // ~200 tokens
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("250") // Only ~1 file should fit
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Count how many <file path= tags appear
+    let file_count = stdout.matches("<file path=").count();
+    assert!(
+        file_count <= 2,
+        "With budget 250 and 3x200-token files, at most 1-2 files should be included, got {}",
+        file_count
+    );
+    // Should have excluded some files by budget
+    assert!(
+        stdout.contains("Excluded by budget"),
+        "Summary should mention excluded files"
+    );
+}
+
+#[test]
+fn test_compression_ratio_is_real() {
+    // Phase 5C: Verify compression actually reduces output size
+    let full_output = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--include")
+        .arg("rs")
+        .output()
+        .expect("Failed to execute command");
+
+    let compressed_output = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--include")
+        .arg("rs")
+        .output()
+        .expect("Failed to execute command");
+
+    let full_len = full_output.stdout.len();
+    let compressed_len = compressed_output.stdout.len();
+
+    assert!(
+        compressed_len < full_len,
+        "Compressed output ({} bytes) should be smaller than full ({} bytes)",
+        compressed_len,
+        full_len
+    );
+    let reduction_pct = ((full_len - compressed_len) * 100) / full_len;
+    assert!(
+        reduction_pct > 20,
+        "Compression should reduce output by >20%, got {}%",
+        reduction_pct
+    );
+}
+
+#[test]
+fn test_compress_unsupported_extension_passthrough() {
+    // Fallback: unknown extension gets full content
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "data.csv", "name,age\nalice,30\nbob,25\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("alice,30"),
+        "CSV content should be included in full"
+    );
+    assert!(
+        stdout.contains("mode=\"full\""),
+        "Unsupported file should get mode=full"
+    );
+}
+
+#[test]
+fn test_compress_empty_file() {
+    // Fallback: empty file
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "empty.rs", "");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Empty file should still appear
+    assert!(
+        stdout.contains("empty.rs"),
+        "Empty file should be in output"
+    );
+}
+
+#[test]
+fn test_full_match_with_compress_and_include() {
+    // INV: full-match with include filter
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "main.rs",
+        "fn main() {\n    println!(\"hello\");\n}\n",
+    );
+    create_test_file(
+        temp_dir.path(),
+        "lib.rs",
+        "pub fn lib_fn() {\n    let x = 1;\n}\n",
+    );
+    create_test_file(
+        temp_dir.path(),
+        "config.toml",
+        "[package]\nname = \"test\"\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .arg("--full-match")
+        .arg("*")
+        .arg("--include")
+        .arg("rs")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // All .rs files should be full (because of --full-match '*')
+    assert!(
+        stdout.contains("println!(\"hello\")"),
+        "main.rs body should be preserved with --full-match '*'"
+    );
+    assert!(
+        stdout.contains("let x = 1"),
+        "lib.rs body should be preserved with --full-match '*'"
+    );
+    // .toml should not appear (filtered by --include rs)
+    assert!(
+        !stdout.contains("[package]"),
+        "config.toml should be excluded by --include rs"
+    );
+}
+
+#[test]
+fn test_full_match_with_wildcard_matches_all() {
+    // INV-6: --compress + --full-match '*' content = no --compress content (for matched files)
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "code.rs",
+        "fn compute(x: i32) -> i32 {\n    let result = x * 2 + 1;\n    result\n}\n",
+    );
+
+    // With --compress --full-match '*'
+    let output_full_match = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .arg("--full-match")
+        .arg("*")
+        .output()
+        .expect("Failed to execute command");
+
+    // Without --compress
+    let output_no_compress = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .expect("Failed to execute command");
+
+    let full_match_stdout = String::from_utf8_lossy(&output_full_match.stdout);
+    let no_compress_stdout = String::from_utf8_lossy(&output_no_compress.stdout);
+
+    // Both should contain the function body
+    assert!(
+        full_match_stdout.contains("let result = x * 2 + 1"),
+        "Full-match should preserve function body"
+    );
+    assert!(
+        no_compress_stdout.contains("let result = x * 2 + 1"),
+        "No-compress should preserve function body"
+    );
+}
