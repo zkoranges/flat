@@ -94,6 +94,17 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
         stats.token_budget = Some(budget);
         write_with_budget(config, &files_to_process, &mut output, &mut stats, budget)?;
     } else if config.stats_only {
+        if config.compress {
+            for path in &files_to_process {
+                let file_name = path
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if !config.is_full_match(&file_name) && language_for_path(path).is_some() {
+                    stats.add_compressed();
+                }
+            }
+        }
         stats.add_output_bytes(200);
         eprintln!("{}", stats.format_summary());
     } else if config.dry_run {
@@ -162,7 +173,10 @@ fn write_with_budget(
             if full_tokens <= remaining_budget {
                 remaining_budget -= full_tokens;
                 stats.tokens_used += full_tokens;
-                decisions.push((candidate, FileDecision::IncludeFull(candidate.content.clone())));
+                decisions.push((
+                    candidate,
+                    FileDecision::IncludeFull(candidate.content.clone()),
+                ));
             } else {
                 stats.excluded_by_budget.push(display_path);
                 decisions.push((candidate, FileDecision::Excluded));
@@ -173,8 +187,7 @@ fn write_with_budget(
             stats.tokens_used += full_tokens;
             if config.compress {
                 // Even though it fits, still compress if possible (per flag behavior)
-                let content =
-                    maybe_compress(config, &candidate.path, &candidate.content, stats);
+                let content = maybe_compress(config, &candidate.path, &candidate.content, stats);
                 decisions.push((candidate, content));
             } else {
                 decisions.push((
@@ -187,16 +200,13 @@ fn write_with_budget(
             if let Some(lang) = language_for_path(&candidate.path) {
                 match compress_source(&candidate.content, lang) {
                     CompressResult::Compressed(compressed) => {
-                        let compressed_tokens =
-                            estimate_tokens(&compressed, candidate.is_prose);
+                        let compressed_tokens = estimate_tokens(&compressed, candidate.is_prose);
                         if compressed_tokens <= remaining_budget {
                             remaining_budget -= compressed_tokens;
                             stats.tokens_used += compressed_tokens;
                             stats.add_compressed();
-                            decisions.push((
-                                candidate,
-                                FileDecision::IncludeCompressed(compressed),
-                            ));
+                            decisions
+                                .push((candidate, FileDecision::IncludeCompressed(compressed)));
                         } else {
                             stats.excluded_by_budget.push(display_path);
                             decisions.push((candidate, FileDecision::Excluded));
@@ -210,15 +220,11 @@ fn write_with_budget(
                             );
                         }
                         // Fallback is full size, which we already know doesn't fit
-                        let fallback_tokens =
-                            estimate_tokens(&original, candidate.is_prose);
+                        let fallback_tokens = estimate_tokens(&original, candidate.is_prose);
                         if fallback_tokens <= remaining_budget {
                             remaining_budget -= fallback_tokens;
                             stats.tokens_used += fallback_tokens;
-                            decisions.push((
-                                candidate,
-                                FileDecision::IncludeFull(original),
-                            ));
+                            decisions.push((candidate, FileDecision::IncludeFull(original)));
                         } else {
                             stats.excluded_by_budget.push(display_path);
                             decisions.push((candidate, FileDecision::Excluded));
@@ -274,19 +280,6 @@ fn write_with_budget(
         stats.add_output_bytes(output.bytes_written());
         output.write_summary(stats)?;
     }
-
-    // Recalculate included files for --tokens mode
-    // (original stats counted all candidates, but some were excluded by budget)
-    let actual_included = decisions
-        .iter()
-        .filter(|(_, d)| !matches!(d, FileDecision::Excluded))
-        .count();
-    // Adjust stats: the original add_included counted all files. We need to fix this.
-    // Actually, included_files was already set during the walk. The budget exclusion
-    // is tracked separately via excluded_by_budget. We leave included_files as the
-    // candidate count (files that passed filters) and use excluded_by_budget for
-    // budget-specific exclusions.
-    let _ = actual_included;
 
     Ok(())
 }

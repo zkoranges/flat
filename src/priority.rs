@@ -52,9 +52,22 @@ fn is_config(file_name: &str) -> bool {
     let stem = file_name.split('.').next().unwrap_or("");
     matches!(
         stem,
-        "config" | "settings" | "package" | "cargo" | "tsconfig" | "webpack"
-            | "vite" | "eslint" | "prettier" | "jest" | "pyproject" | "setup"
-            | "makefile" | "dockerfile" | "docker-compose" | "go"
+        "config"
+            | "settings"
+            | "package"
+            | "cargo"
+            | "tsconfig"
+            | "webpack"
+            | "vite"
+            | "eslint"
+            | "prettier"
+            | "jest"
+            | "pyproject"
+            | "setup"
+            | "makefile"
+            | "dockerfile"
+            | "docker-compose"
+            | "go"
     ) || file_name.ends_with(".toml")
         || file_name.ends_with(".yaml")
         || file_name.ends_with(".yml")
@@ -62,7 +75,10 @@ fn is_config(file_name: &str) -> bool {
 }
 
 fn is_test(path_str: &str, file_name: &str) -> bool {
-    path_str.contains("test") || path_str.contains("spec") || file_name.contains("test") || file_name.contains("spec")
+    path_str.contains("test")
+        || path_str.contains("spec")
+        || file_name.contains("test")
+        || file_name.contains("spec")
 }
 
 fn is_fixture(path_str: &str) -> bool {
@@ -150,7 +166,10 @@ mod tests {
             sb.cmp(&sa).then_with(|| a.cmp(b))
         });
 
-        let names: Vec<&str> = files.iter().map(|p| p.file_name().unwrap().to_str().unwrap()).collect();
+        let names: Vec<&str> = files
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap())
+            .collect();
         assert_eq!(names[0], "README.md");
         assert_eq!(names[1], "main.rs");
         assert_eq!(names[2], "Cargo.toml");
