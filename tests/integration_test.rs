@@ -780,6 +780,161 @@ fn test_compress_full_match_all_produces_full_output() {
 }
 
 // ============================================================================
+// Token Budget Tests
+// ============================================================================
+
+#[test]
+fn test_tokens_budget_limits_output() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create files with known sizes
+    create_test_file(temp_dir.path(), "big.rs", &"x".repeat(900)); // 300 tokens (900/3)
+    create_test_file(temp_dir.path(), "small.rs", &"y".repeat(30)); // 10 tokens (30/3)
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("50") // Only small.rs should fit
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // small.rs should be included
+    assert!(stdout.contains("small.rs"));
+    // big.rs should be excluded
+    assert!(!stdout.contains("<file") || !stdout.contains("big.rs") || stdout.contains("Excluded by budget"));
+}
+
+#[test]
+fn test_tokens_zero_produces_summary_only() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("0")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should have summary but no file content
+    assert!(stdout.contains("<summary>"));
+    assert!(stdout.contains("Excluded by budget"));
+    assert!(!stdout.contains("<file path="));
+}
+
+#[test]
+fn test_tokens_summary_shows_budget_info() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("1000")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("Token budget:"));
+}
+
+#[test]
+fn test_tokens_dry_run_shows_annotations() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "small.rs", "fn main() {}\n");
+    create_test_file(temp_dir.path(), "big.rs", &"x".repeat(9000));
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("100")
+        .arg("--dry-run")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should show annotations
+    assert!(stdout.contains("[FULL]") || stdout.contains("[EXCLUDED]"));
+}
+
+#[test]
+fn test_tokens_priority_ordering() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // README gets highest priority (100), main.rs gets 90
+    create_test_file(temp_dir.path(), "README.md", "# Project\n");
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+    create_test_file(temp_dir.path(), "utils.rs", &"x".repeat(9000));
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("100")
+        .arg("--dry-run")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // README should appear first (highest priority)
+    let readme_pos = stdout.find("README.md");
+    let main_pos = stdout.find("main.rs");
+    assert!(readme_pos.is_some());
+    assert!(main_pos.is_some());
+    assert!(readme_pos.unwrap() < main_pos.unwrap());
+}
+
+#[test]
+fn test_tokens_without_compress_no_mode_attr() {
+    // INV-7: --tokens without --compress never adds mode attributes
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("1000")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(!stdout.contains("mode="));
+}
+
+#[test]
+fn test_tokens_with_compress() {
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "main.rs",
+        "fn hello(name: &str) -> String {\n    let greeting = format!(\"Hello, {}!\", name);\n    greeting\n}\n",
+    );
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("1000")
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should have mode attribute and be compressed
+    assert!(stdout.contains("mode="));
+    assert!(stdout.contains("{ ... }"));
+}
+
+// ============================================================================
 // Determinism Tests
 // ============================================================================
 

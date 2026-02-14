@@ -4,18 +4,35 @@ use crate::filters::{
     exceeds_size_limit, is_binary_content, is_binary_extension, is_secret_file, SkipReason,
 };
 use crate::output::{OutputWriter, Statistics};
+use crate::priority::score_file;
+use crate::tokens::{estimate_tokens, is_prose_extension};
 use anyhow::{Context, Result};
 use ignore::WalkBuilder;
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// A file candidate with its content and metadata for budget allocation
+struct FileCandidate {
+    path: PathBuf,
+    content: String,
+    score: u32,
+    is_prose: bool,
+}
+
+/// Result of budget allocation for a single file
+enum FileDecision {
+    IncludeFull(String),
+    IncludeCompressed(String),
+    Excluded,
+}
 
 pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
     let mut stats = Statistics::new();
 
     // Build the walker with gitignore support
     let mut builder = WalkBuilder::new(&config.path);
-    builder.standard_filters(true); // Enable .gitignore, .ignore, etc.
+    builder.standard_filters(true);
 
     if let Some(ref gitignore_path) = config.gitignore_path {
         builder.add_custom_ignore_filename(gitignore_path);
@@ -40,12 +57,10 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
             Ok(entry) => {
                 let path = entry.path();
 
-                // Skip directories
                 if path.is_dir() {
                     continue;
                 }
 
-                // Check filters
                 if let Some(reason) = should_skip(path, config) {
                     stats.add_skipped(reason.clone());
                     if !config.stats_only {
@@ -58,7 +73,6 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
                 let extension = path.extension().and_then(|e| e.to_str());
                 stats.add_included(extension);
 
-                // Add file size estimate for output calculation
                 if let Ok(metadata) = fs::metadata(path) {
                     let file_size = metadata.len();
                     let path_str = path.display().to_string();
@@ -75,102 +89,344 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
     // Sort files by path for deterministic output
     files_to_process.sort();
 
-    // Write output based on mode
-    if config.stats_only {
-        // Stats only mode - just print statistics
-        // Add overhead for summary block (approximately 200 bytes)
+    // Handle token budget mode
+    if let Some(budget) = config.token_budget {
+        stats.token_budget = Some(budget);
+        write_with_budget(config, &files_to_process, &mut output, &mut stats, budget)?;
+    } else if config.stats_only {
         stats.add_output_bytes(200);
         eprintln!("{}", stats.format_summary());
     } else if config.dry_run {
-        // Dry run mode - list files that would be included
         for path in &files_to_process {
             output.write_file_path(&path.display().to_string())?;
         }
-        // Update stats with output size and write summary
         stats.add_output_bytes(output.bytes_written());
         output.write_summary(&stats)?;
     } else {
-        // Normal mode - write file contents
-        for path in &files_to_process {
-            match fs::read_to_string(path) {
-                Ok(content) => {
-                    let display_path = path.display().to_string();
-
-                    if config.compress {
-                        let file_name = path.file_name()
-                            .map(|f| f.to_string_lossy().to_string())
-                            .unwrap_or_default();
-                        let is_full = config.is_full_match(&file_name);
-
-                        if is_full {
-                            output.write_file_content_with_mode(&display_path, &content, Some("full"))?;
-                        } else if let Some(lang) = language_for_path(path) {
-                            match compress_source(&content, lang) {
-                                CompressResult::Compressed(compressed) => {
-                                    output.write_file_content_with_mode(&display_path, &compressed, Some("compressed"))?;
-                                    stats.add_compressed();
-                                }
-                                CompressResult::Fallback(original, reason) => {
-                                    if let Some(reason) = reason {
-                                        eprintln!("Warning: compression failed for {}: {}, including full content", display_path, reason);
-                                    }
-                                    output.write_file_content_with_mode(&display_path, &original, Some("full"))?;
-                                }
-                            }
-                        } else {
-                            // Unsupported extension - full content
-                            output.write_file_content_with_mode(&display_path, &content, Some("full"))?;
-                        }
-                    } else {
-                        output.write_file_content(&display_path, &content)?;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error reading {}: {}", path.display(), e);
-                }
-            }
-        }
-        // Update stats with output size and write summary at the end
-        stats.add_output_bytes(output.bytes_written());
-        output.write_summary(&stats)?;
+        write_normal(config, &files_to_process, &mut output, &mut stats)?;
     }
 
     Ok(stats)
 }
 
+/// Write files with token budget allocation
+fn write_with_budget(
+    config: &Config,
+    files: &[PathBuf],
+    output: &mut OutputWriter,
+    stats: &mut Statistics,
+    budget: usize,
+) -> Result<()> {
+    let base_path = &config.path;
+
+    // Read all file contents and compute scores
+    let mut candidates: Vec<FileCandidate> = Vec::new();
+    for path in files {
+        match fs::read_to_string(path) {
+            Ok(content) => {
+                let score = score_file(path, base_path);
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let is_prose = is_prose_extension(ext);
+                candidates.push(FileCandidate {
+                    path: path.clone(),
+                    content,
+                    score,
+                    is_prose,
+                });
+            }
+            Err(e) => {
+                eprintln!("Error reading {}: {}", path.display(), e);
+            }
+        }
+    }
+
+    // Sort by (score DESC, path ASC) — stable sort
+    candidates.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.path.cmp(&b.path)));
+
+    let mut remaining_budget = budget;
+
+    // Allocate full-match files first (if --tokens + --compress + --full-match)
+    let mut decisions: Vec<(&FileCandidate, FileDecision)> = Vec::new();
+
+    for candidate in &candidates {
+        let display_path = candidate.path.display().to_string();
+        let file_name = candidate
+            .path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let full_tokens = estimate_tokens(&candidate.content, candidate.is_prose);
+
+        if config.compress && config.is_full_match(&file_name) {
+            // Full-match files: always use full content, never compress
+            if full_tokens <= remaining_budget {
+                remaining_budget -= full_tokens;
+                stats.tokens_used += full_tokens;
+                decisions.push((candidate, FileDecision::IncludeFull(candidate.content.clone())));
+            } else {
+                stats.excluded_by_budget.push(display_path);
+                decisions.push((candidate, FileDecision::Excluded));
+            }
+        } else if full_tokens <= remaining_budget {
+            // File fits in full
+            remaining_budget -= full_tokens;
+            stats.tokens_used += full_tokens;
+            if config.compress {
+                // Even though it fits, still compress if possible (per flag behavior)
+                let content =
+                    maybe_compress(config, &candidate.path, &candidate.content, stats);
+                decisions.push((candidate, content));
+            } else {
+                decisions.push((
+                    candidate,
+                    FileDecision::IncludeFull(candidate.content.clone()),
+                ));
+            }
+        } else if config.compress {
+            // Try compressed version
+            if let Some(lang) = language_for_path(&candidate.path) {
+                match compress_source(&candidate.content, lang) {
+                    CompressResult::Compressed(compressed) => {
+                        let compressed_tokens =
+                            estimate_tokens(&compressed, candidate.is_prose);
+                        if compressed_tokens <= remaining_budget {
+                            remaining_budget -= compressed_tokens;
+                            stats.tokens_used += compressed_tokens;
+                            stats.add_compressed();
+                            decisions.push((
+                                candidate,
+                                FileDecision::IncludeCompressed(compressed),
+                            ));
+                        } else {
+                            stats.excluded_by_budget.push(display_path);
+                            decisions.push((candidate, FileDecision::Excluded));
+                        }
+                    }
+                    CompressResult::Fallback(original, reason) => {
+                        if let Some(reason) = &reason {
+                            eprintln!(
+                                "Warning: compression failed for {}: {}, including full content",
+                                display_path, reason
+                            );
+                        }
+                        // Fallback is full size, which we already know doesn't fit
+                        let fallback_tokens =
+                            estimate_tokens(&original, candidate.is_prose);
+                        if fallback_tokens <= remaining_budget {
+                            remaining_budget -= fallback_tokens;
+                            stats.tokens_used += fallback_tokens;
+                            decisions.push((
+                                candidate,
+                                FileDecision::IncludeFull(original),
+                            ));
+                        } else {
+                            stats.excluded_by_budget.push(display_path);
+                            decisions.push((candidate, FileDecision::Excluded));
+                        }
+                    }
+                }
+            } else {
+                // Unsupported for compression, and full doesn't fit
+                stats.excluded_by_budget.push(display_path);
+                decisions.push((candidate, FileDecision::Excluded));
+            }
+        } else {
+            // No compression, doesn't fit
+            stats.excluded_by_budget.push(display_path);
+            decisions.push((candidate, FileDecision::Excluded));
+        }
+    }
+
+    // Write output
+    if config.stats_only {
+        stats.add_output_bytes(200);
+        eprintln!("{}", stats.format_summary());
+    } else if config.dry_run {
+        for (candidate, decision) in &decisions {
+            let display_path = candidate.path.display().to_string();
+            let annotation = match decision {
+                FileDecision::IncludeFull(_) => "[FULL]",
+                FileDecision::IncludeCompressed(_) => "[COMPRESSED]",
+                FileDecision::Excluded => "[EXCLUDED]",
+            };
+            output.write_file_path(&format!("{} {}", display_path, annotation))?;
+        }
+        stats.add_output_bytes(output.bytes_written());
+        output.write_summary(stats)?;
+    } else {
+        for (candidate, decision) in &decisions {
+            let display_path = candidate.path.display().to_string();
+            match decision {
+                FileDecision::IncludeFull(content) => {
+                    let mode = if config.compress { Some("full") } else { None };
+                    output.write_file_content_with_mode(&display_path, content, mode)?;
+                }
+                FileDecision::IncludeCompressed(content) => {
+                    output.write_file_content_with_mode(
+                        &display_path,
+                        content,
+                        Some("compressed"),
+                    )?;
+                }
+                FileDecision::Excluded => {}
+            }
+        }
+        stats.add_output_bytes(output.bytes_written());
+        output.write_summary(stats)?;
+    }
+
+    // Recalculate included files for --tokens mode
+    // (original stats counted all candidates, but some were excluded by budget)
+    let actual_included = decisions
+        .iter()
+        .filter(|(_, d)| !matches!(d, FileDecision::Excluded))
+        .count();
+    // Adjust stats: the original add_included counted all files. We need to fix this.
+    // Actually, included_files was already set during the walk. The budget exclusion
+    // is tracked separately via excluded_by_budget. We leave included_files as the
+    // candidate count (files that passed filters) and use excluded_by_budget for
+    // budget-specific exclusions.
+    let _ = actual_included;
+
+    Ok(())
+}
+
+/// Write files without token budget (normal mode)
+fn write_normal(
+    config: &Config,
+    files: &[PathBuf],
+    output: &mut OutputWriter,
+    stats: &mut Statistics,
+) -> Result<()> {
+    for path in files {
+        match fs::read_to_string(path) {
+            Ok(content) => {
+                let display_path = path.display().to_string();
+
+                if config.compress {
+                    let file_name = path
+                        .file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let is_full = config.is_full_match(&file_name);
+
+                    if is_full {
+                        output.write_file_content_with_mode(
+                            &display_path,
+                            &content,
+                            Some("full"),
+                        )?;
+                    } else if let Some(lang) = language_for_path(path) {
+                        match compress_source(&content, lang) {
+                            CompressResult::Compressed(compressed) => {
+                                output.write_file_content_with_mode(
+                                    &display_path,
+                                    &compressed,
+                                    Some("compressed"),
+                                )?;
+                                stats.add_compressed();
+                            }
+                            CompressResult::Fallback(original, reason) => {
+                                if let Some(reason) = reason {
+                                    eprintln!(
+                                        "Warning: compression failed for {}: {}, including full content",
+                                        display_path, reason
+                                    );
+                                }
+                                output.write_file_content_with_mode(
+                                    &display_path,
+                                    &original,
+                                    Some("full"),
+                                )?;
+                            }
+                        }
+                    } else {
+                        output.write_file_content_with_mode(
+                            &display_path,
+                            &content,
+                            Some("full"),
+                        )?;
+                    }
+                } else {
+                    output.write_file_content(&display_path, &content)?;
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading {}: {}", path.display(), e);
+            }
+        }
+    }
+
+    stats.add_output_bytes(output.bytes_written());
+    output.write_summary(stats)?;
+    Ok(())
+}
+
+/// Helper: Try to compress a file if applicable, returning the appropriate decision
+fn maybe_compress(
+    config: &Config,
+    path: &Path,
+    content: &str,
+    stats: &mut Statistics,
+) -> FileDecision {
+    let file_name = path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    if config.is_full_match(&file_name) {
+        return FileDecision::IncludeFull(content.to_string());
+    }
+
+    if let Some(lang) = language_for_path(path) {
+        match compress_source(content, lang) {
+            CompressResult::Compressed(compressed) => {
+                stats.add_compressed();
+                FileDecision::IncludeCompressed(compressed)
+            }
+            CompressResult::Fallback(original, reason) => {
+                if let Some(reason) = reason {
+                    eprintln!(
+                        "Warning: compression failed for {}: {}, including full content",
+                        path.display(),
+                        reason
+                    );
+                }
+                FileDecision::IncludeFull(original)
+            }
+        }
+    } else {
+        FileDecision::IncludeFull(content.to_string())
+    }
+}
+
 /// Check if a file should be skipped, returning the reason if so
 fn should_skip(path: &Path, config: &Config) -> Option<SkipReason> {
-    // Check match pattern filter
     if let Some(file_name) = path.file_name() {
         if !config.should_include_by_match(&file_name.to_string_lossy()) {
             return Some(SkipReason::Match);
         }
     }
 
-    // Check if it's a secret file
     if is_secret_file(path) {
         return Some(SkipReason::Secret);
     }
 
-    // Check extension filter
     if let Some(ext) = path.extension() {
         let ext_str = ext.to_string_lossy();
         if !config.should_include_extension(&ext_str) {
             return Some(SkipReason::Extension);
         }
 
-        // Check if it's a known binary extension
         if is_binary_extension(path) {
             return Some(SkipReason::Binary);
         }
     }
 
-    // Check file size
     if exceeds_size_limit(path, config.max_file_size) {
         return Some(SkipReason::TooLarge);
     }
 
-    // Check if it's binary content
     if is_binary_content(path) {
         return Some(SkipReason::Binary);
     }

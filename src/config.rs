@@ -14,6 +14,7 @@ pub struct Config {
     pub max_file_size: u64,
     pub compress: bool,
     pub full_match_patterns: Option<Vec<GlobMatcher>>,
+    pub token_budget: Option<usize>,
 }
 
 impl Default for Config {
@@ -30,6 +31,7 @@ impl Default for Config {
             max_file_size: 1024 * 1024, // 1MB
             compress: false,
             full_match_patterns: None,
+            token_budget: None,
         }
     }
 }

@@ -10,6 +10,9 @@ pub struct Statistics {
     pub included_by_extension: HashMap<String, usize>,
     pub output_size: usize,
     pub compressed_files: usize,
+    pub token_budget: Option<usize>,
+    pub tokens_used: usize,
+    pub excluded_by_budget: Vec<String>,
 }
 
 impl Statistics {
@@ -146,6 +149,21 @@ impl Statistics {
 
             summary.push_str(&format!(" ({})", reason_str));
             summary.push('\n');
+        }
+
+        // Add token budget info
+        if let Some(budget) = self.token_budget {
+            summary.push_str(&format!(
+                "Token budget: {} / {} used\n",
+                Self::format_tokens(self.tokens_used),
+                Self::format_tokens(budget)
+            ));
+            if !self.excluded_by_budget.is_empty() {
+                summary.push_str(&format!(
+                    "Excluded by budget: {} files\n",
+                    self.excluded_by_budget.len()
+                ));
+            }
         }
 
         // Add output size and token estimate if there's output

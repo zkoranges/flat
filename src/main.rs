@@ -52,6 +52,10 @@ struct Cli {
     /// Glob patterns for files that should always get full content (requires --compress)
     #[arg(long, value_delimiter = ',')]
     full_match: Option<Vec<String>>,
+
+    /// Maximum estimated token count for file content in output
+    #[arg(long)]
+    tokens: Option<usize>,
 }
 
 fn main() -> Result<()> {
@@ -100,6 +104,7 @@ fn main() -> Result<()> {
         max_file_size: cli.max_size,
         compress: cli.compress,
         full_match_patterns,
+        token_budget: cli.tokens,
     };
 
     let stats = walk_and_flatten(&config)?;
