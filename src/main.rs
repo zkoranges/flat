@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use clap::Parser;
+use flat::parse::{parse_binary_number, parse_decimal_number};
 use flat::{walk_and_flatten, Config};
 use globset::Glob;
 use std::path::PathBuf;
@@ -17,7 +18,7 @@ Examples:
   flat src/ | pbcopy                    Copy to clipboard (macOS)
   flat --include rs,toml                Only Rust and TOML files
   flat --compress                       Signatures only — strip function bodies
-  flat --compress --tokens 8000         Fit into a token budget
+  flat --compress --tokens 8k            Fit into a token budget (8k = 8,000 tokens)
   flat --compress --full-match 'main.rs'  Keep main.rs full, compress the rest
   flat --stats                          Preview file count and size
   flat --dry-run                        List files without content")]
@@ -64,8 +65,8 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     gitignore: Option<PathBuf>,
 
-    /// Maximum file size in bytes
-    #[arg(long, default_value = "1048576", value_name = "BYTES")]
+    /// Maximum file size in bytes (supports k/M/G suffixes, e.g., 10M)
+    #[arg(long, default_value = "1048576", value_parser = parse_binary_number, value_name = "BYTES")]
     max_size: u64,
 
     /// Extract signatures and strip function bodies (Rust, TS, JS, Python, Go)
@@ -76,8 +77,8 @@ struct Cli {
     #[arg(long, value_delimiter = ',', value_name = "GLOB")]
     full_match: Option<Vec<String>>,
 
-    /// Cap output to an estimated token budget (prioritizes important files)
-    #[arg(long, value_name = "N")]
+    /// Cap output to an estimated token budget (supports k/M/G suffixes, e.g., 10k)
+    #[arg(long, value_parser = parse_decimal_number, value_name = "N")]
     tokens: Option<usize>,
 }
 

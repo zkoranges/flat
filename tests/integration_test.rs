@@ -1592,6 +1592,192 @@ fn test_full_match_with_compress_and_include() {
     );
 }
 
+// ============================================================================
+// Human-Friendly Number Parsing Tests
+// ============================================================================
+
+#[test]
+fn test_tokens_suffix_k_lowercase() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("1k")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Token budget:"));
+}
+
+#[test]
+fn test_tokens_suffix_k_uppercase() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("100K")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokens_suffix_m() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("1M")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokens_plain_number_still_works() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("8000")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokens_invalid_suffix_errors() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("abc")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid number"));
+}
+
+#[test]
+fn test_tokens_decimal_not_supported() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("1.5k")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid number"));
+}
+
+#[test]
+fn test_tokens_k_means_1000() {
+    // 1k = 1,000 tokens (decimal), files with ~10 tokens should fit easily
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "small.rs", "fn a() {}\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("1k")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("small.rs"), "File should fit in 1k (1000) token budget");
+}
+
+#[test]
+fn test_max_size_suffix_k() {
+    let temp_dir = TempDir::new().unwrap();
+    // File is 500 bytes, 1k = 1024 bytes — should fit
+    create_test_file(temp_dir.path(), "small.rs", &"x".repeat(500));
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--max-size")
+        .arg("1k")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("small.rs"));
+}
+
+#[test]
+fn test_max_size_suffix_m() {
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--max-size")
+        .arg("10M")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_max_size_plain_number_still_works() {
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--max-size")
+        .arg("10485760")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_max_size_k_means_1024() {
+    let temp_dir = TempDir::new().unwrap();
+    // File is 1025 bytes — just over 1k (1024) limit
+    create_test_file(temp_dir.path(), "big.rs", &"x".repeat(1025));
+    // File is 500 bytes — fits in 1k
+    create_test_file(temp_dir.path(), "small.rs", &"y".repeat(500));
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--max-size")
+        .arg("1k")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stdout.contains("small.rs"), "500-byte file should fit in 1k (1024)");
+    assert!(stderr.contains("big.rs") && stderr.contains("too large"),
+        "1025-byte file should exceed 1k (1024) limit");
+}
+
+#[test]
+fn test_max_size_invalid_errors() {
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--max-size")
+        .arg("xyz")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid number"));
+}
+
+#[test]
+fn test_tokens_and_max_size_suffixes_together() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("8k")
+        .arg("--max-size")
+        .arg("1M")
+        .assert()
+        .success();
+}
+
 #[test]
 fn test_full_match_with_wildcard_matches_all() {
     // INV-6: --compress + --full-match '*' content = no --compress content (for matched files)
