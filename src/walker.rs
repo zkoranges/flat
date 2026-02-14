@@ -1,3 +1,4 @@
+use crate::compress::{compress_source, language_for_path, CompressResult};
 use crate::config::Config;
 use crate::filters::{
     exceeds_size_limit, is_binary_content, is_binary_extension, is_secret_file, SkipReason,
@@ -90,7 +91,36 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
         for path in &files_to_process {
             match fs::read_to_string(path) {
                 Ok(content) => {
-                    output.write_file_content(&path.display().to_string(), &content)?;
+                    let display_path = path.display().to_string();
+
+                    if config.compress {
+                        let file_name = path.file_name()
+                            .map(|f| f.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        let is_full = config.is_full_match(&file_name);
+
+                        if is_full {
+                            output.write_file_content_with_mode(&display_path, &content, Some("full"))?;
+                        } else if let Some(lang) = language_for_path(path) {
+                            match compress_source(&content, lang) {
+                                CompressResult::Compressed(compressed) => {
+                                    output.write_file_content_with_mode(&display_path, &compressed, Some("compressed"))?;
+                                    stats.add_compressed();
+                                }
+                                CompressResult::Fallback(original, reason) => {
+                                    if let Some(reason) = reason {
+                                        eprintln!("Warning: compression failed for {}: {}, including full content", display_path, reason);
+                                    }
+                                    output.write_file_content_with_mode(&display_path, &original, Some("full"))?;
+                                }
+                            }
+                        } else {
+                            // Unsupported extension - full content
+                            output.write_file_content_with_mode(&display_path, &content, Some("full"))?;
+                        }
+                    } else {
+                        output.write_file_content(&display_path, &content)?;
+                    }
                 }
                 Err(e) => {
                     eprintln!("Error reading {}: {}", path.display(), e);

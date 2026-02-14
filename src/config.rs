@@ -12,6 +12,8 @@ pub struct Config {
     pub stats_only: bool,
     pub gitignore_path: Option<PathBuf>,
     pub max_file_size: u64,
+    pub compress: bool,
+    pub full_match_patterns: Option<Vec<GlobMatcher>>,
 }
 
 impl Default for Config {
@@ -26,6 +28,8 @@ impl Default for Config {
             stats_only: false,
             gitignore_path: None,
             max_file_size: 1024 * 1024, // 1MB
+            compress: false,
+            full_match_patterns: None,
         }
     }
 }
@@ -55,6 +59,15 @@ impl Config {
         match &self.match_patterns {
             Some(patterns) => patterns.iter().any(|m| m.is_match(file_name)),
             None => true,
+        }
+    }
+
+    /// Check if a file should always get full content (skip compression).
+    /// Returns true if --full-match patterns are set and the file name matches.
+    pub fn is_full_match(&self, file_name: &str) -> bool {
+        match &self.full_match_patterns {
+            Some(patterns) => patterns.iter().any(|m| m.is_match(file_name)),
+            None => false,
         }
     }
 }
