@@ -72,12 +72,6 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
                 files_to_process.push(path.to_path_buf());
                 let extension = path.extension().and_then(|e| e.to_str());
                 stats.add_included(extension);
-
-                if let Ok(metadata) = fs::metadata(path) {
-                    let file_size = metadata.len();
-                    let path_str = path.display().to_string();
-                    stats.add_file_size_estimate(file_size, path_str.len());
-                }
             }
             Err(e) => {
                 eprintln!("Error walking directory: {}", e);
@@ -94,18 +88,43 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
         stats.token_budget = Some(budget);
         write_with_budget(config, &files_to_process, &mut output, &mut stats, budget)?;
     } else if config.stats_only {
-        if config.compress {
-            for path in &files_to_process {
+        for path in &files_to_process {
+            let path_str = path.display().to_string();
+            if config.compress {
                 let file_name = path
                     .file_name()
                     .map(|f| f.to_string_lossy().to_string())
                     .unwrap_or_default();
-                if !config.is_full_match(&file_name) && language_for_path(path).is_some() {
-                    stats.add_compressed();
+                let is_full = config.is_full_match(&file_name);
+                if !is_full {
+                    if let Some(lang) = language_for_path(path) {
+                        if let Ok(content) = fs::read_to_string(path) {
+                            match compress_source(&content, lang) {
+                                CompressResult::Compressed(compressed) => {
+                                    stats.add_file_size_estimate(
+                                        compressed.len() as u64,
+                                        path_str.len(),
+                                    );
+                                    stats.add_compressed();
+                                    continue;
+                                }
+                                CompressResult::Fallback(original, _) => {
+                                    stats.add_file_size_estimate(
+                                        original.len() as u64,
+                                        path_str.len(),
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                 }
             }
+            // Non-compress mode, full-match files, or non-compressible files: use raw size
+            if let Ok(metadata) = fs::metadata(path) {
+                stats.add_file_size_estimate(metadata.len(), path_str.len());
+            }
         }
-        stats.add_output_bytes(200);
         eprintln!("{}", stats.format_summary());
     } else if config.dry_run {
         for path in &files_to_process {
@@ -245,7 +264,15 @@ fn write_with_budget(
 
     // Write output
     if config.stats_only {
-        stats.add_output_bytes(200);
+        for (candidate, decision) in &decisions {
+            match decision {
+                FileDecision::IncludeFull(content) | FileDecision::IncludeCompressed(content) => {
+                    let path_str = candidate.path.display().to_string();
+                    stats.add_file_size_estimate(content.len() as u64, path_str.len());
+                }
+                FileDecision::Excluded => {}
+            }
+        }
         eprintln!("{}", stats.format_summary());
     } else if config.dry_run {
         for (candidate, decision) in &decisions {

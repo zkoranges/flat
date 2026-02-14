@@ -166,13 +166,20 @@ impl Statistics {
             }
         }
 
-        // Add output size and token estimate if there's output
+        // Add output size (skip token estimate when budget is active to avoid confusion)
         if self.output_size > 0 {
-            summary.push_str(&format!(
-                "Output size: {} (~{} tokens)\n",
-                Self::format_bytes(self.output_size),
-                Self::format_tokens(self.estimated_tokens())
-            ));
+            if self.token_budget.is_some() {
+                summary.push_str(&format!(
+                    "Output size: {}\n",
+                    Self::format_bytes(self.output_size),
+                ));
+            } else {
+                summary.push_str(&format!(
+                    "Output size: {} (~{} tokens)\n",
+                    Self::format_bytes(self.output_size),
+                    Self::format_tokens(self.estimated_tokens())
+                ));
+            }
         }
 
         summary.push_str("</summary>\n");

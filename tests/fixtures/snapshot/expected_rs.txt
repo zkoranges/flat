@@ -27,6 +27,6 @@ Total files: 8
 Included: 1 (1 .rs)
 Compressed: 1 files
 Skipped: 7 (7 extension)
-Output size: 1.26 KB (~322 tokens)
+Output size: 531 bytes (~132 tokens)
 </summary>
 

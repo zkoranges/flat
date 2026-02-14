@@ -18,6 +18,6 @@ Total files: 8
 Included: 1 (1 .go)
 Compressed: 1 files
 Skipped: 7 (7 extension)
-Output size: 814 bytes (~203 tokens)
+Output size: 319 bytes (~79 tokens)
 </summary>
 
