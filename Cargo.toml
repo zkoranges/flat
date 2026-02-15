@@ -1,6 +1,6 @@
 [package]
-name = "flat"
-version = "0.3.1"
+name = "flat-cli"
+version = "0.4.0"
 edition = "2021"
 authors = ["zkoranges"]
 license = "MIT"
@@ -9,6 +9,14 @@ repository = "https://github.com/zkoranges/flat"
 readme = "README.md"
 keywords = ["cli", "ai", "code", "flatten", "developer-tools"]
 categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+name = "flat"
+path = "src/lib.rs"
+
+[[bin]]
+name = "flat"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
@@ -30,6 +38,7 @@ tree-sitter-ruby = "0.23"
 tree-sitter-php = "0.23"
 tree-sitter-solidity = "1.2"
 tree-sitter-elixir = "0.3"
+tiktoken-rs = "0.6"
 
 [dev-dependencies]
 assert_cmd = "2.0"

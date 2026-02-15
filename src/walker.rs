@@ -5,7 +5,7 @@ use crate::filters::{
 };
 use crate::output::{OutputWriter, Statistics};
 use crate::priority::score_file;
-use crate::tokens::{estimate_tokens, is_prose_extension};
+use crate::tokens::{is_prose_extension, Tokenizer};
 use anyhow::{Context, Result};
 use ignore::WalkBuilder;
 use std::fs;
@@ -29,6 +29,7 @@ enum FileDecision {
 
 pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
     let mut stats = Statistics::new();
+    let tokenizer = Tokenizer::new(config.tokenizer.clone());
 
     // Build the walker with gitignore support
     let mut builder = WalkBuilder::new(&config.path);
@@ -86,7 +87,7 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
     // Handle token budget mode
     if let Some(budget) = config.token_budget {
         stats.token_budget = Some(budget);
-        write_with_budget(config, &files_to_process, &mut output, &mut stats, budget)?;
+        write_with_budget(config, &files_to_process, &mut output, &mut stats, budget, &tokenizer)?;
     } else if config.stats_only {
         for path in &files_to_process {
             let path_str = path.display().to_string();
@@ -152,6 +153,7 @@ fn write_with_budget(
     output: &mut OutputWriter,
     stats: &mut Statistics,
     budget: usize,
+    tokenizer: &Tokenizer,
 ) -> Result<()> {
     let base_path = &config.path;
 
@@ -191,7 +193,7 @@ fn write_with_budget(
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_default();
-        let full_tokens = estimate_tokens(&candidate.content, candidate.is_prose);
+        let full_tokens = tokenizer.count_tokens(&candidate.content, candidate.is_prose);
 
         if config.compress && config.is_full_match(&file_name) {
             // Full-match files: always use full content, never compress
@@ -225,7 +227,7 @@ fn write_with_budget(
             if let Some(lang) = language_for_path(&candidate.path) {
                 match compress_source(&candidate.content, lang) {
                     CompressResult::Compressed(compressed) => {
-                        let compressed_tokens = estimate_tokens(&compressed, candidate.is_prose);
+                        let compressed_tokens = tokenizer.count_tokens(&compressed, candidate.is_prose);
                         if compressed_tokens <= remaining_budget {
                             remaining_budget -= compressed_tokens;
                             stats.tokens_used += compressed_tokens;
@@ -245,7 +247,7 @@ fn write_with_budget(
                             );
                         }
                         // Fallback is full size, which we already know doesn't fit
-                        let fallback_tokens = estimate_tokens(&original, candidate.is_prose);
+                        let fallback_tokens = tokenizer.count_tokens(&original, candidate.is_prose);
                         if fallback_tokens <= remaining_budget {
                             remaining_budget -= fallback_tokens;
                             stats.tokens_used += fallback_tokens;

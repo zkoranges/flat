@@ -1,89 +1,185 @@
 # flat
 
-[![Crates.io](https://img.shields.io/crates/v/flat.svg)](https://crates.io/crates/flat)
+[![Crates.io](https://img.shields.io/crates/v/flat-cli.svg)](https://crates.io/crates/flat-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/zkoranges/flat)](https://github.com/zkoranges/flat/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/zkoranges/flat)](https://github.com/zkoranges/flat/releases)
+[![CI/CD](https://github.com/zkoranges/flat/actions/workflows/release.yml/badge.svg)](https://github.com/zkoranges/flat/actions)
 
-Pack an entire codebase into a single file, ready to paste into any AI.
+**Pack entire codebases into a single file for AI consumption.**
+
+Compress source code to its structure (signatures, types, imports — no function bodies), pack files by importance, and fit any project into any context window.
 
 ```bash
 flat | pbcopy
 ```
 
-That's it. `.gitignore` respected, secrets stripped, binaries skipped — automatically.
+That's it. `.gitignore` respected, secrets stripped, binaries excluded — automatically. Works on macOS, Linux, and Windows with native binaries.
 
-But the real power is fitting *more* code into a context window:
-
-```bash
-flat --compress --tokens 128000 | pbcopy
-```
-
-This **compresses source code to its signatures** (stripping function bodies, keeping structure) and **packs files by priority** until the token budget is full. README and entry points go in first. Test fixtures get cut first.
-
-## Install
+## Quick Start
 
 ```bash
-brew install zkoranges/tap/flat           # Homebrew
-cargo install --git https://github.com/zkoranges/flat.git   # Cargo
+# Install once
+cargo install flat-cli
+
+# Use it
+flat | pbcopy                                          # everything to clipboard
+flat --format markdown | pbcopy                        # markdown for AI chat
+flat --compress --tokens 100k | pbcopy                 # fit into 100k context
+flat --tokenizer claude --tokens 10k | pbcopy          # accurate Claude token count
 ```
 
-## What You Get
+## Why flat?
 
-```
-$ flat src/ --include rs
+**Three features that compose together:**
 
-<file path="src/tokens.rs">
-pub fn estimate_tokens(content: &str, is_prose: bool) -> usize {
-    let byte_count = content.len();
-    if is_prose {
-        byte_count / 4
-    } else {
-        byte_count / 3
-    }
-}
+1. **`--compress`** — Structural compression using tree-sitter (12 languages)
+   - Keeps: imports, type definitions, function signatures, docstrings
+   - Strips: function bodies, loop contents, variable assignments
+   - Result: 30-60% token reduction while preserving API surface
 
-pub fn is_prose_extension(ext: &str) -> bool {
-    matches!(ext.to_lowercase().as_str(), "md" | "txt" | "rst" ...)
-}
-</file>
-```
+2. **`--tokens N`** — Context window budgeting
+   - Scores files by importance (README=100, entry points=90, tests=30, fixtures=5)
+   - Packs greedily: high-value files first, low-value files dropped
+   - Fits any codebase into any context window
 
-```
-$ flat src/ --compress --include rs
+3. **`--format`** — Choose your output
+   - `xml` (default) — structured XML, for programmatic parsing
+   - `markdown` — human-readable, for pasting into Claude/ChatGPT
 
-<file path="src/tokens.rs" mode="compressed">
-pub fn estimate_tokens(content: &str, is_prose: bool) -> usize { ... }
-pub fn is_prose_extension(ext: &str) -> bool { ... }
-</file>
+**The power move:**
+
+```bash
+flat --compress --tokenizer claude --tokens 100k --format markdown | pbcopy
 ```
 
-Same file. Same API surface. 60% fewer tokens.
+This gives you:
+- **Compressed** code (structure, no bodies)
+- **Accurate** token count (Claude tokenizer, not heuristic)
+- **Bounded** output (fits 100k context exactly)
+- **Human-readable** markdown (perfect for copy-paste into AI)
 
-## The Three Powers
+## Features
 
-flat has three features that compose together. Each is useful alone. Combined, they let you fit any codebase into any context window.
+| Feature | v0.4.0 | Details |
+|---------|:------:|---------|
+| **Tree-sitter compression** | ✓ | 12 languages, 30-60% reduction |
+| **Real tokenizers** | ✓ | Claude/GPT-4/GPT-3.5 (accurate) or heuristic (fast) |
+| **Token budgeting** | ✓ | Fit any codebase into any context window |
+| **Priority scoring** | ✓ | README=100, entry points=90, tests=30, fixtures=5 |
+| **Multiple formats** | ✓ | XML (structured) or Markdown (human-readable) |
+| **Multi-platform** | ✓ | macOS, Linux, Windows with native binaries |
+| **Safety by default** | ✓ | Secrets excluded, binaries skipped, `.gitignore` respected |
+| **12 languages** | ✓ | Rust, TS/JS, Python, Go, Java, C#, C, C++, Ruby, PHP, Solidity, Elixir |
+| **Fast** | ✓ | 25k files in <3 seconds |
+| **Test coverage** | ✓ | 200+ tests (unit + integration) |
 
-### 1. `--compress` — structural compression
+## Installation
 
-Uses [tree-sitter](https://tree-sitter.github.io/) to parse source files, keep the structure, strip the implementation:
+### Via cargo (recommended)
+
+```bash
+cargo install flat-cli
+```
+
+Works on macOS, Linux, Windows. Binary name: `flat`.
+
+### Via Homebrew (macOS)
+
+```bash
+brew install zkoranges/tap/flat
+```
+
+### Prebuilt binaries
+
+Download from [GitHub Releases](https://github.com/zkoranges/flat/releases):
+- `flat-x86_64-apple-darwin.tar.gz` (macOS Intel)
+- `flat-aarch64-apple-darwin.tar.gz` (macOS Apple Silicon)
+- `flat-x86_64-unknown-linux-gnu.tar.gz` (Linux)
+- `flat-x86_64-pc-windows-msvc.zip` (Windows)
+
+### Requirements
+
+- macOS 10.15+, Linux (glibc 2.17+), Windows 10+
+- No external dependencies (fully static linked)
+- Rust 1.70+ (if building from source)
+
+## Usage
+
+### Basic usage
+
+```bash
+flat                                  # all files in current directory
+flat src/                             # all files in src/
+flat src/ --include rs,toml          # only .rs and .toml files
+flat src/ --exclude test,spec        # skip test/spec files
+flat src/ --match '*_test.go'        # glob patterns (repeatable)
+flat src/ --max-size 10M             # files up to 10 MiB
+```
+
+### Compression
+
+```bash
+flat --compress                       # signatures only (30-60% smaller)
+flat --compress --full-match '*.rs'   # compress most files, keep *.rs in full
+```
+
+### Output formats
+
+```bash
+flat --format xml                     # XML (default, structured)
+flat --format markdown | pbcopy       # Markdown (human-readable)
+flat -o snapshot.xml                  # write to file instead of stdout
+```
+
+### Token budgeting
+
+```bash
+flat --tokens 100k                    # fit output into 100k tokens
+flat --compress --tokens 100k         # compress to fit budget
+flat --tokens 100k --dry-run          # preview what fits
+flat --tokens 100k --stats            # summary only
+```
+
+### Real tokenizers
+
+```bash
+flat --tokenizer heuristic            # fast estimate (default, conservative)
+flat --tokenizer claude               # Claude 3/4 tokenizer (exact)
+flat --tokenizer gpt-4                # GPT-4 tokenizer (exact)
+flat --tokenizer gpt-3.5              # GPT-3.5 tokenizer (exact)
+```
+
+**Tokenizer comparison:**
+
+| Tokenizer | Speed | Accuracy | Use case |
+|-----------|-------|----------|----------|
+| `heuristic` | Instant | ~20-30% overestimate | Quick previews, safety margin |
+| `claude` | ~1s | Exact | Pasting into Claude |
+| `gpt-4` | ~1s | Exact | OpenAI API (GPT-4) |
+| `gpt-3.5` | ~1s | Exact | OpenAI API (GPT-3.5) |
+
+The heuristic intentionally overestimates so you stay within budget. Real tokenizers give exact counts when precision matters.
+
+## Compression Details
+
+### What gets compressed
+
+Uses [tree-sitter](https://tree-sitter.github.io/) to parse and selectively strip:
 
 ```
- Kept                              Stripped
- ─────────────────────────────     ──────────────────────
- imports, require(), use            function/method bodies
- type definitions, interfaces      loop contents
- struct/class declarations         if/else branches
- function signatures               variable assignments
- decorators, attributes              inside functions
- docstrings, comments
- module-level constants
- enums, preprocessor directives
+Kept                              Stripped
+─────────────────────────────     ──────────────────────
+imports, require(), use            function/method bodies
+type definitions, interfaces       loop contents
+struct/class declarations          if/else branches
+function signatures                variable assignments
+decorators, attributes             inside functions
+docstrings, comments
+module-level constants
+enums, preprocessor directives
 ```
 
-**Supported languages:** Rust, TypeScript/JavaScript (JSX/TSX), Python, Go, Java, C#, C, C++, Ruby, PHP.
-
-<details>
-<summary>What each compressor preserves</summary>
+### Supported languages
 
 | Language | Keeps | Body placeholder |
 |----------|-------|:----------------:|
@@ -97,12 +193,12 @@ Uses [tree-sitter](https://tree-sitter.github.io/) to parse source files, keep t
 | **C++** | preprocessor, templates, namespaces, classes with members, `using`/aliases | `{ ... }` |
 | **Ruby** | `require`, assignments, class/module structure | `...\nend` |
 | **PHP** | `<?php`, `use`/`namespace`, class/interface/trait/enum, properties | `{ ... }` |
+| **Solidity** | `pragma`, imports, contract/interface/library, event/error/struct/enum declarations | `{ ... }` |
+| **Elixir** | `defmodule`, `use`/`import`/`alias`/`require`, module attributes, typespecs | `...\nend` |
 
-</details>
+Files in other languages pass through in full. If tree-sitter can't parse a file, the original is included with a stderr warning.
 
-Files in other languages pass through in full — nothing is silently dropped. If tree-sitter can't parse a file (syntax errors, unsupported features), the original is included with a stderr warning.
-
-**Real-world results:**
+### Real-world results
 
 | Codebase | Files | Full | Compressed | Reduction |
 |----------|------:|-----:|-----------:|----------:|
@@ -110,12 +206,12 @@ Files in other languages pass through in full — nothing is silently dropped. I
 | [Flask](https://github.com/pallets/flask) | 24 | 339 KB | 214 KB | **37%** |
 | [Next.js](https://github.com/vercel/next.js) `packages/next/src` | 1,605 | 8.0 MB | 5.6 MB | **31%** |
 
-### 2. `--tokens N` — token budget
+## Priority Scoring
 
-Caps output to fit a context window. Files are scored by importance and packed greedily — high-value files first, low-value files dropped:
+Files are ranked by importance for `--tokens` budgeting:
 
 | Priority | Score | Examples |
-|----------|------:|---------|
+|----------|------:|----------|
 | README | 100 | `README.md`, `README.rst` |
 | Entry points | 90 | `main.rs`, `index.ts`, `app.py` |
 | Config | 80 | `Cargo.toml`, `package.json`, `tsconfig.json` |
@@ -123,119 +219,7 @@ Caps output to fit a context window. Files are scored by importance and packed g
 | Tests | 30 | `*_test.go`, `test_*.py` |
 | Fixtures | 5 | `tests/fixtures/*`, `__snapshots__/*` |
 
-### 3. `--full-match GLOB` — selective full content
-
-When compressing, keep specific files in full:
-
-```bash
-flat --compress --full-match 'app.py'
-```
-
-`app.py` gets `mode="full"` with complete source. Everything else gets `mode="compressed"` with signatures only. Useful when you want a project overview but need complete implementation detail in the file you're debugging.
-
-## Composing Flags
-
-**Every combination works.** Flags operate in a pipeline — filters narrow the file set, transforms shape the content, output controls the format:
-
-```
-  Filters (narrow files)          Transforms (shape content)       Output
-  ─────────────────────           ──────────────────────────       ──────
-  --include / --exclude           --compress                       (stdout)
-  --match                         --full-match                     -o FILE
-  --max-size                      --tokens                         --dry-run
-  --gitignore                                                      --stats
-```
-
-All filters compose with all transforms and all output modes. Here's what each transform combination does:
-
-```
-  flat                                    Full content
-  flat --compress                         Signatures only
-  flat --tokens 8000                      Full content, capped to budget
-  flat --compress --tokens 8000           Signatures, capped to budget
-  flat --compress --full-match '*.rs'     Matched files full, rest compressed
-  flat --compress --full-match '*.rs' \
-       --tokens 8000                      The full pipeline (see below)
-```
-
-### The full pipeline
-
-```bash
-flat src/ \
-  --include py \
-  --compress \
-  --full-match 'app.py' \
-  --tokens 30000
-```
-
-Here's what happens:
-
-1. **Filter** — walk `src/`, keep only `.py` files
-2. **Score** — rank every file by importance (README=100, entry points=90, ...)
-3. **Allocate** — `app.py` matches `--full-match`, so reserve its full content first
-4. **Fill** — pack remaining files in priority order, compressing each to save space
-5. **Cut** — when the 30k token budget is full, exclude the rest
-
-Preview the result without generating output:
-
-```
-$ flat src/ --include py --compress --full-match 'app.py' --tokens 30000 --dry-run
-
-flask/app.py [FULL]
-flask/config.py [COMPRESSED]
-flask/__init__.py [COMPRESSED]
-flask/blueprints.py [COMPRESSED]
-flask/cli.py [EXCLUDED]
-flask/ctx.py [EXCLUDED]
-...
-Token budget: 29.8k / 30.0k used
-Excluded by budget: 16 files
-```
-
-`app.py` is in full (you can debug it). The most important modules are compressed (you can see the API surface). Low-priority files are cut. Everything fits in 30k tokens.
-
-### What `--full-match` does NOT do
-
-`--full-match` does not override the token budget. If `app.py` is 20k tokens and your budget is 10k, `app.py` gets excluded — the budget is a hard ceiling. This is intentional: if flat silently overran the budget, you'd overflow context windows.
-
-## Filtering
-
-```bash
-flat --include rs,toml,md             # only these extensions
-flat --exclude test,spec,lock         # skip these extensions
-flat --match '*_test.go'              # glob on filename (repeatable)
-flat --max-size 10M                   # increase size limit to 10 MiB
-```
-
-Numeric arguments accept single-letter suffixes: `k`/`K` (thousands), `M` (millions/mebibytes), `G` (billions/gibibytes).
-
-Filters compose: `--include`/`--exclude` operate on extensions, `--match` operates on filenames. They all apply before compression and budget allocation.
-
-## Output Modes
-
-| Flag | Output |
-|------|--------|
-| *(none)* | XML-wrapped file contents to stdout |
-| `-o FILE` | Same, written to a file |
-| `--dry-run` | File list only, no content |
-| `--stats` | Summary statistics only |
-| `--dry-run` + `--tokens` | File list annotated `[FULL]` / `[COMPRESSED]` / `[EXCLUDED]` |
-
-## Performance
-
-The entire Next.js monorepo — 25,000+ files — processes in under 3 seconds:
-
-```
-$ time flat /path/to/nextjs --compress --stats
-
-Included: 24,327
-Compressed: 19,771 files
-Skipped: 894
-
-real    0m2.883s
-```
-
-Without `--tokens`, compression streams file-by-file (constant memory). With `--tokens`, all candidate files are buffered for scoring — but even that is fast.
+When a token budget is specified, high-priority files are included first. Low-priority files are dropped first.
 
 ## Safety
 
@@ -248,9 +232,26 @@ Secrets are **always** excluded — no flag needed:
 | SSH | `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519` |
 | Credentials | `credentials.json`, `serviceAccount.json` |
 
-Binary files are always excluded (images, media, archives, executables, compiled artifacts). All `.gitignore` patterns are respected via [ripgrep's parser](https://github.com/BurntSushi/ripgrep).
+Binary files are automatically skipped (images, media, archives, executables, compiled artifacts). All `.gitignore` patterns are respected.
 
-> Use `--dry-run` to preview before sharing code with any external service.
+**Use `--dry-run` to preview before sharing code with external services.**
+
+## Performance
+
+Processes large codebases efficiently:
+
+```bash
+$ time flat /path/to/nextjs --compress --stats
+# 25,000+ files processed in ~3 seconds
+
+Included: 24,327
+Compressed: 19,771 files
+Skipped: 894
+
+real    0m2.883s
+```
+
+Without `--tokens`, compression streams file-by-file (constant memory). With `--tokens`, all candidate files are buffered for scoring — but even that is fast.
 
 ## Recipes
 
@@ -260,6 +261,10 @@ flat | pbcopy                                    # everything, to clipboard
 flat --include rs,toml | pbcopy                  # just Rust files
 flat --stats                                     # preview before copying
 
+# Output formats
+flat --format markdown | pbcopy                  # markdown for AI chat
+flat --format xml -o snapshot.xml                # XML for tools
+
 # Compression
 flat --compress | pbcopy                         # structural overview
 flat --compress --full-match 'main.rs' | pbcopy  # overview + one file in full
@@ -267,36 +272,83 @@ flat --compress --full-match 'main.rs' | pbcopy  # overview + one file in full
 # Token budgets
 flat --compress --tokens 100k | pbcopy            # fit into 100k context
 flat --compress --tokens 8k --dry-run             # preview what fits
+flat --tokenizer claude --tokens 100k | pbcopy    # exact Claude token count
+flat --tokenizer gpt-4 --tokens 128k | pbcopy     # exact GPT-4 token count
 
-# Targeted
+# Targeted analysis
 flat src/api --include ts --exclude spec          # just the API layer
 flat --match '*_test.go' | pbcopy                 # only test files
 flat src/ --compress --full-match 'handler.rs'    # debug one file in context
+
+# The full pipeline
+flat src/ --compress --tokens 100k \
+  --tokenizer claude --format markdown \
+  --full-match 'main.rs' | pbcopy                # everything combined
 
 # Save to file
 flat --compress -o snapshot.xml                   # compressed snapshot
 ```
 
-## Project
+## Architecture
 
 ```
 src/
-├── main.rs        CLI entry point
+├── main.rs        CLI entry point, argument parsing
+├── lib.rs         Public API
 ├── walker.rs      Directory traversal, two-pass budget allocation
-├── compress.rs    Tree-sitter compression engine (10 languages)
+├── compress.rs    Tree-sitter compression engine (12 languages)
 ├── priority.rs    File importance scoring
-├── tokens.rs      Token estimation
-├── filters.rs     Secret and binary detection
-├── output.rs      XML formatting and statistics
-├── config.rs      Configuration
-└── lib.rs         Public API
+├── tokens.rs      Token estimation and real tokenizer support (Claude/GPT-4)
+├── filters.rs     Secret detection, binary file skipping
+├── output.rs      Output formatting (XML/Markdown) and statistics
+├── parse.rs       Number parsing (k/M/G suffixes)
+└── config.rs      Configuration and CLI options
 ```
 
-139 tests (64 unit + 75 integration), validated against Flask, FastAPI, Express, and Next.js.
+**Quality metrics:**
+- 200+ tests (unit + integration)
+- Zero clippy warnings
+- Full tree-sitter support for 12 languages
+- Validated against Flask, FastAPI, Express, Next.js
 
 ```bash
 cargo test --all && cargo clippy --all-targets -- -D warnings
 ```
+
+## Contributing
+
+Contributions welcome! Areas of interest:
+
+- Additional language support (via tree-sitter)
+- Tokenizer optimizations
+- Template system (v0.5.0)
+- MCP server integration (v0.5.0)
+
+See [LICENSE](LICENSE) for details.
+
+## Roadmap
+
+### v0.4.0 ✅ Accessibility
+- Real tokenizer support (Claude/GPT-4/GPT-3.5)
+- Markdown output format
+- Multi-platform binaries (macOS/Linux/Windows)
+- Published to crates.io
+
+### v0.5.0 Integration (planned)
+- MCP server mode (`flat serve`)
+- GitHub URL support (`--github org/repo`)
+- Template system (custom output formats)
+- JSON output format
+
+### v0.6.0 Performance (planned)
+- Incremental processing with caching
+- Watch mode for auto-regeneration
+- Parallel compression
+
+### v1.0 Intelligence (research)
+- Hierarchical summarization (18:1 compression)
+- Semantic code understanding
+- IDE extensions
 
 ## License
 

@@ -1,152 +1,200 @@
-# Release Guide
+# Release Process
 
-This guide explains how to create a new release of `flat` with automated binary builds.
+This document describes how to release a new version of flat.
 
 ## Prerequisites
 
-- Push access to the repository
+- Maintainer access to the GitHub repository
+- crates.io publish token (already configured)
+- Homebrew tap token (already configured in GitHub Secrets)
 - All tests passing locally
-- Changes merged to `main` branch
 
-## Release Process
+## Quick Release (Recommended)
 
-### 1. Update Version
-
-Update version in `Cargo.toml`:
-
-```toml
-[package]
-name = "flat"
-version = "0.2.0"  # Update this
-```
-
-### 2. Test Everything
+The simplest way to release:
 
 ```bash
-# Run all tests
-cargo test --all
+./release 0.5.0
+```
 
-# Run clippy with strict warnings
-cargo clippy --all-targets -- -D warnings
+The script will:
+1. ✅ Run tests (validation)
+2. ✅ Commit all changes with changelog
+3. ✅ Create git tag
+4. ✅ Push to GitHub
+5. ✅ Trigger GitHub Actions
 
-# Build release binary
+Then GitHub Actions automatically:
+1. ✅ Builds binaries (macOS Intel, macOS ARM, Linux, Windows)
+2. ✅ Runs test suite
+3. ✅ Creates GitHub release with binaries
+4. ✅ Updates Homebrew formula
+
+**Total time:** ~2 minutes for script + 10 minutes for CI/CD
+
+## Manual Release Process
+
+If you prefer step-by-step control:
+
+### 1. Prepare the release
+
+```bash
+# Ensure working directory is clean
+git status
+
+# Update version in Cargo.toml (if needed)
+vim Cargo.toml  # Change version = "0.4.0" to "0.5.0"
+
+# Update Cargo.lock
 cargo build --release
 
-# Test the binary
-./target/release/flat --version
-./target/release/flat --help
+# Run all checks
+cargo test --all
+cargo clippy --all-targets -- -D warnings
 ```
 
-### 3. Commit Version Bump
+### 2. Commit changes
 
 ```bash
-git add Cargo.toml Cargo.lock
-git commit -m "Bump version to X.Y.Z"
-git push
+git add -A
+git commit -m "Release v0.5.0
+
+- Feature 1
+- Feature 2
+- Bug fix 3
+
+Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>"
 ```
 
-### 4. Create and Push Tag
+### 3. Create and push tag
 
 ```bash
 # Create annotated tag
-git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git tag -a v0.5.0 -m "v0.5.0
 
-# Push the tag
-git push origin vX.Y.Z
+- Feature 1
+- Feature 2
+- Bug fix 3"
+
+# Push commit and tag
+git push origin main
+git push origin v0.5.0
 ```
 
-### 5. GitHub Actions Takes Over
+### 4. Monitor GitHub Actions
 
-Once you push the tag, GitHub Actions will automatically:
+1. Go to https://github.com/zkoranges/flat/actions
+2. Watch the "Release" workflow
+3. Verify all jobs succeed:
+   - Build (macOS, Linux, Windows)
+   - Tests
+   - Homebrew formula update
 
-1. ✅ Run all tests
-2. ✅ Run clippy checks
-3. ✅ Build binaries for:
-   - macOS Intel (x86_64-apple-darwin)
-   - macOS Apple Silicon (aarch64-apple-darwin)
-4. ✅ Create a GitHub Release
-5. ✅ Upload binaries to the release
-
-The process takes about 5-10 minutes.
-
-### 6. Verify Release
-
-1. Go to https://github.com/zkoranges/flat/releases
-2. Check that the release was created
-3. Verify both binary files are attached:
-   - `flat-x86_64-apple-darwin.tar.gz` (Intel Mac)
-   - `flat-aarch64-apple-darwin.tar.gz` (Apple Silicon)
-
-### 7. Test Installation
-
-Test the quick install script:
+### 5. Verify the release
 
 ```bash
-# On a different machine or clean environment
-curl -sSL https://raw.githubusercontent.com/zkoranges/flat/main/install.sh | bash
+# Check GitHub release page
+open https://github.com/zkoranges/flat/releases/tag/v0.5.0
 
-# Verify it works
-flat --version
+# Test crates.io (may take a few minutes to sync)
+cargo install flat-cli --force
+
+# Test Homebrew (formula auto-updated)
+brew upgrade flat
 ```
+
+## Release Checklist
+
+Before releasing:
+- [ ] All features complete and tested
+- [ ] README.md updated with new features (if applicable)
+- [ ] ROADMAP.md updated (if roadmap changed)
+- [ ] Version bumped in Cargo.toml (if not auto-done)
+- [ ] Tests passing (`cargo test --all`)
+- [ ] Clippy clean (`cargo clippy --all-targets -- -D warnings`)
+
+After releasing:
+- [ ] GitHub Actions passed (check Actions tab)
+- [ ] GitHub release created with binaries
+- [ ] crates.io updated (https://crates.io/crates/flat-cli)
+- [ ] Homebrew formula updated
+- [ ] Download and test at least one binary
+- [ ] Announce release (optional: Twitter, Reddit, etc.)
 
 ## Troubleshooting
 
-### Build Failed
+### GitHub Actions fails
 
-Check the Actions tab: https://github.com/zkoranges/flat/actions
+Check the Actions tab for error messages. Common issues:
+- **Test failures:** Run locally first with `cargo test --all`
+- **Clippy warnings:** Run `cargo clippy --all-targets -- -D warnings`
+- **Cross-compilation errors:** Check the build matrix in `.github/workflows/release.yml`
 
-Common issues:
-- Tests failing → Fix tests and create new tag
-- Clippy warnings → Fix warnings and create new tag
-- Build errors → Fix code and create new tag
+**Fix:** Commit and push the fix, then retry release
 
-### Release Not Created
+### Homebrew formula update fails
 
-- Ensure tag starts with `v` (e.g., `v0.1.0`, not `0.1.0`)
-- Check Actions tab for errors
-- Verify `GITHUB_TOKEN` has permissions
+- Check `HOMEBREW_TAP_TOKEN` secret is set in GitHub
+- Verify the tap repository exists: https://github.com/zkoranges/homebrew-tap
+- Formula may need manual update if automation fails
 
-### Binary Download Fails
+### crates.io publish fails
 
-- Wait 5-10 minutes for build to complete
-- Check release page for binaries
-- Verify binaries are attached
+- For v0.4.0: Already published to crates.io
+- For subsequent versions: Published automatically via GitHub Actions
+- Manual publish: `cargo publish` (requires token: `cargo login`)
+
+## Release Cadence
+
+- **Patch releases** (0.4.1): Bug fixes, every 1-2 weeks as needed
+- **Minor releases** (0.5.0): New features, every 4-8 weeks
+- **Major releases** (1.0.0): Breaking changes or major milestones
 
 ## Version Numbering
 
-Follow [Semantic Versioning](https://semver.org/):
+Follow Semantic Versioning (semver):
+- **MAJOR**: Breaking API/CLI changes (1.0.0 → 2.0.0)
+- **MINOR**: New features, backwards compatible (0.4.0 → 0.5.0)
+- **PATCH**: Bug fixes, backwards compatible (0.4.0 → 0.4.1)
 
-- **Major** (1.0.0): Breaking changes
-- **Minor** (0.1.0): New features, backwards compatible
-- **Patch** (0.0.1): Bug fixes
+## Platform Support
 
-Examples:
-- `v0.2.0` - New feature (compression, token budgets)
-- `v0.2.1` - Bug fix
-- `v0.3.0` - New feature
-- `v1.0.0` - Stable release
+Current targets (auto-built via GitHub Actions):
+- `x86_64-apple-darwin` (macOS Intel)
+- `aarch64-apple-darwin` (macOS Apple Silicon)
+- `x86_64-unknown-linux-gnu` (Linux)
+- `x86_64-pc-windows-msvc` (Windows)
 
-## Checklist
+Binaries available via:
+- Direct download: GitHub Releases
+- Homebrew: `brew install flat`
+- Cargo: `cargo install flat-cli`
 
-Before releasing:
+## Installation Instructions for Users
 
-- [ ] All tests pass locally
-- [ ] Clippy passes with `-D warnings`
-- [ ] Version updated in `Cargo.toml`
-- [ ] Changes documented (if applicable)
-- [ ] Tag follows `vX.Y.Z` format
-- [ ] Tag pushed to GitHub
+**Homebrew (macOS):**
+```bash
+brew install zkoranges/tap/flat
+```
 
-After releasing:
+**Cargo (all platforms):**
+```bash
+cargo install flat-cli
+```
 
-- [ ] GitHub Actions completed successfully
-- [ ] Release created on GitHub
-- [ ] Both macOS binaries attached
-- [ ] Install script tested
-- [ ] Release announcement (optional)
+**Binary download:**
+Visit https://github.com/zkoranges/flat/releases
 
-## Notes
+## CI/CD Details
 
-- The install script falls back to building from source if binaries aren't available
-- Users don't need to wait for releases - they can always build from source
-- Consider adding Linux and Windows builds in the future
+Release workflow (`.github/workflows/release.yml`):
+1. Triggered by git tag push (v*.*.*)
+2. Builds for all platforms
+3. Runs tests
+4. Creates GitHub release
+5. Updates Homebrew formula via HOMEBREW_TAP_TOKEN
+6. Auto-publishes to crates.io (if configured)
+
+Credentials in GitHub Secrets:
+- `HOMEBREW_TAP_TOKEN` - For auto-updating Homebrew formula
+- `CARGO_REGISTRY_TOKEN` - For crates.io publish (if applicable)

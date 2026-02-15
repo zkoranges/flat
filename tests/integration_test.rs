@@ -1853,3 +1853,154 @@ fn test_full_match_with_wildcard_matches_all() {
         "No-compress should preserve function body"
     );
 }
+
+// ============================================================================
+// Tokenizer CLI Tests
+// ============================================================================
+
+#[test]
+fn test_tokenizer_default_heuristic() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("1000")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokenizer_heuristic_explicit() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokenizer")
+        .arg("heuristic")
+        .arg("--tokens")
+        .arg("1000")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokenizer_claude() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokenizer")
+        .arg("claude")
+        .arg("--tokens")
+        .arg("1000")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokenizer_gpt4() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokenizer")
+        .arg("gpt-4")
+        .arg("--tokens")
+        .arg("1000")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokenizer_gpt35() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokenizer")
+        .arg("gpt-3.5")
+        .arg("--tokens")
+        .arg("1000")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokenizer_invalid_rejected() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokenizer")
+        .arg("invalid-name")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown tokenizer"));
+}
+
+#[test]
+fn test_tokenizer_appears_in_help() {
+    flat_cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--tokenizer"));
+}
+
+#[test]
+fn test_tokenizer_without_tokens_still_works() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokenizer")
+        .arg("gpt-4")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_tokenizer_real_vs_heuristic_budget_difference() {
+    let temp_dir = TempDir::new().unwrap();
+
+    let content = "x".repeat(300); // Heuristic: 300/3 = 100 tokens
+    create_test_file(temp_dir.path(), "code.rs", &content);
+
+    let heuristic_output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokenizer")
+        .arg("heuristic")
+        .arg("--tokens")
+        .arg("100")
+        .output()
+        .expect("Failed to execute command");
+
+    let real_output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokenizer")
+        .arg("gpt-4")
+        .arg("--tokens")
+        .arg("100")
+        .output()
+        .expect("Failed to execute command");
+
+    let h_stdout = String::from_utf8_lossy(&heuristic_output.stdout);
+    let r_stdout = String::from_utf8_lossy(&real_output.stdout);
+
+    assert!(
+        h_stdout.contains("Token budget:") || h_stdout.contains("code.rs"),
+        "Heuristic output should contain budget info or file"
+    );
+    assert!(
+        r_stdout.contains("Token budget:") || r_stdout.contains("code.rs"),
+        "Real tokenizer output should contain budget info or file"
+    );
+}

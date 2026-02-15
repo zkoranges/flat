@@ -1,3 +1,4 @@
+use crate::tokens::TokenizerKind;
 use globset::GlobMatcher;
 use std::path::PathBuf;
 
@@ -15,6 +16,7 @@ pub struct Config {
     pub compress: bool,
     pub full_match_patterns: Option<Vec<GlobMatcher>>,
     pub token_budget: Option<usize>,
+    pub tokenizer: TokenizerKind,
 }
 
 impl Default for Config {
@@ -32,6 +34,7 @@ impl Default for Config {
             compress: false,
             full_match_patterns: None,
             token_budget: None,
+            tokenizer: TokenizerKind::default(),
         }
     }
 }

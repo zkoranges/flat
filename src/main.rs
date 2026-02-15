@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use flat::parse::{parse_binary_number, parse_decimal_number};
+use flat::tokens::TokenizerKind;
 use flat::{walk_and_flatten, Config};
 use globset::Glob;
 use std::path::PathBuf;
@@ -80,6 +81,10 @@ struct Cli {
     /// Cap output to an estimated token budget (supports k/M/G suffixes, e.g., 10k)
     #[arg(long, value_parser = parse_decimal_number, value_name = "N")]
     tokens: Option<usize>,
+
+    /// Tokenizer for token counting [heuristic, claude, gpt-4, gpt-3.5]
+    #[arg(long, default_value = "heuristic", value_name = "NAME")]
+    tokenizer: String,
 }
 
 fn main() -> Result<()> {
@@ -116,6 +121,15 @@ fn main() -> Result<()> {
         None => None,
     };
 
+    let tokenizer = match TokenizerKind::parse_name(&cli.tokenizer) {
+        Some(kind) => kind,
+        None => bail!(
+            "Unknown tokenizer '{}'. Valid options: {}",
+            cli.tokenizer,
+            TokenizerKind::valid_names()
+        ),
+    };
+
     let config = Config {
         path: cli.path,
         include_extensions: cli.include,
@@ -129,6 +143,7 @@ fn main() -> Result<()> {
         compress: cli.compress,
         full_match_patterns,
         token_budget: cli.tokens,
+        tokenizer,
     };
 
     let stats = walk_and_flatten(&config)?;
