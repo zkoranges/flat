@@ -135,6 +135,18 @@ struct FlattenArgs {
     /// GitHub personal access token for private repos (can also set GITHUB_TOKEN env var)
     #[arg(long, value_name = "TOKEN")]
     github_token: Option<String>,
+
+    /// Use parallel processing for faster flattening on multi-core systems (v0.6.0)
+    #[arg(long)]
+    parallel: bool,
+
+    /// Disable incremental caching (v0.6.0; caching is enabled by default)
+    #[arg(long)]
+    no_cache: bool,
+
+    /// Watch for file changes and auto-regenerate output (v0.6.0)
+    #[arg(long)]
+    watch: bool,
 }
 
 fn main() -> Result<()> {
@@ -227,6 +239,19 @@ fn run_flatten(cli: FlattenArgs) -> Result<()> {
         (cli.path.clone(), None)
     };
 
+    // Validate watch mode constraints
+    if cli.watch {
+        if cli.dry_run {
+            bail!("--watch cannot be used with --dry-run");
+        }
+        if cli.stats {
+            bail!("--watch cannot be used with --stats");
+        }
+        if cli.output.is_some() {
+            bail!("--watch cannot be used with --output (output would change constantly)");
+        }
+    }
+
     // Resolve ignore file: --ignore-file takes precedence, fall back to --gitignore
     let ignore_file = cli.ignore_file.or(cli.gitignore);
 
@@ -250,22 +275,31 @@ fn run_flatten(cli: FlattenArgs) -> Result<()> {
         github_token: cli.github_token,
         exclude_dirs: cli.exclude_dir,
         no_ignore: cli.no_ignore,
+        parallel: cli.parallel,
+        cache: !cli.no_cache,  // Default to true unless --no-cache is specified
+        watch: cli.watch,
     };
 
-    let stats = walk_and_flatten(&config)?;
-
-    // Exit with error if no files appear in the output
-    let output_files = if stats.token_budget.is_some() {
-        stats
-            .included_files
-            .saturating_sub(stats.excluded_by_budget.len())
+    // Dispatch to watch mode or normal flattening
+    if config.watch {
+        flat::watch::watch_mode(config)?;
+        Ok(())
     } else {
-        stats.included_files
-    };
-    if output_files == 0 {
-        eprintln!("Error: No files matched the criteria");
-        std::process::exit(3);
-    }
+        let stats = walk_and_flatten(&config)?;
 
-    Ok(())
+        // Exit with error if no files appear in the output
+        let output_files = if stats.token_budget.is_some() {
+            stats
+                .included_files
+                .saturating_sub(stats.excluded_by_budget.len())
+        } else {
+            stats.included_files
+        };
+        if output_files == 0 {
+            eprintln!("Error: No files matched the criteria");
+            std::process::exit(3);
+        }
+
+        Ok(())
+    }
 }

@@ -1,3 +1,4 @@
+use crate::cache::{self, Cache, CacheEntry};
 use crate::compress::{compress_source, language_for_path, CompressResult};
 use crate::config::{Config, OutputFormat};
 use crate::filters::{
@@ -9,6 +10,7 @@ use crate::tokens::{is_prose_extension, Tokenizer};
 use anyhow::{Context, Result};
 use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
+use rayon::prelude::*;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,6 +28,22 @@ enum FileDecision {
     IncludeFull(String),
     IncludeCompressed(String),
     Excluded,
+}
+
+/// Result of processing a single file (for parallel processing)
+enum FileProcessResult {
+    Success {
+        path: PathBuf,
+        display_path: String,
+        content: String,
+        mode: Option<String>, // "full", "compressed", or None
+        is_compressed: bool,
+        cache_hit: bool,
+    },
+    Error {
+        display_path: String,
+        error: String,
+    },
 }
 
 pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
@@ -195,7 +213,12 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
         stats.add_output_bytes(output.bytes_written());
         output.write_summary(&stats)?;
     } else {
-        write_normal(config, &files_to_process, &mut output, &mut stats)?;
+        // Dispatch to parallel or sequential writer based on config
+        if config.parallel {
+            write_normal_parallel(config, &files_to_process, &mut output, &mut stats)?;
+        } else {
+            write_normal(config, &files_to_process, &mut output, &mut stats)?;
+        }
     }
 
     Ok(stats)
@@ -375,6 +398,215 @@ fn write_with_budget(
         output.write_summary(stats)?;
     }
 
+    Ok(())
+}
+
+/// Write files without token budget using parallel processing with optional caching
+fn write_normal_parallel(
+    config: &Config,
+    files: &[PathBuf],
+    output: &mut OutputWriter,
+    stats: &mut Statistics,
+) -> Result<()> {
+    // Load cache if enabled
+    let mut cache = if config.cache {
+        let cache_dir = cache::get_cache_dir(&config.path)?;
+        let cache_path = cache_dir.join("cache.bin");
+        Cache::load(&cache_path)?
+    } else {
+        Cache::new()
+    };
+
+    // Generate config hash for cache validation
+    let config_hash = cache::generate_config_hash(
+        config.compress,
+        config.max_file_size,
+        &config.include_extensions,
+        &config.exclude_extensions,
+    );
+
+    // Process files in parallel, collecting results in order
+    let results: Vec<FileProcessResult> = files
+        .par_iter()
+        .map(|path| {
+            let display_path = path.display().to_string();
+
+            // Try cache first (if enabled)
+            if config.cache {
+                if let Ok((mtime, size)) = cache::get_file_metadata(path) {
+                    if let Some(entry) = cache.get(&display_path, mtime, size, &config_hash) {
+                        let is_compressed = entry.mode.as_deref() == Some("compressed");
+                        return FileProcessResult::Success {
+                            path: path.clone(),
+                            display_path,
+                            content: entry.content,
+                            mode: entry.mode,
+                            is_compressed,
+                            cache_hit: true,
+                        };
+                    }
+                }
+            }
+
+            // Cache miss - process file
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    if config.compress {
+                        let file_name = path
+                            .file_name()
+                            .map(|f| f.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        let is_full = config.is_full_match(&file_name);
+
+                        if is_full {
+                            FileProcessResult::Success {
+                                path: path.clone(),
+                                display_path,
+                                content,
+                                mode: Some("full".to_string()),
+                                is_compressed: false,
+                                cache_hit: false,
+                            }
+                        } else if let Some(lang) = language_for_path(path) {
+                            match compress_source(&content, lang) {
+                                CompressResult::Compressed(compressed) => {
+                                    FileProcessResult::Success {
+                                        path: path.clone(),
+                                        display_path,
+                                        content: compressed,
+                                        mode: Some("compressed".to_string()),
+                                        is_compressed: true,
+                                        cache_hit: false,
+                                    }
+                                }
+                                CompressResult::Fallback(original, _reason) => {
+                                    FileProcessResult::Success {
+                                        path: path.clone(),
+                                        display_path,
+                                        content: original,
+                                        mode: Some("full".to_string()),
+                                        is_compressed: false,
+                                        cache_hit: false,
+                                    }
+                                }
+                            }
+                        } else {
+                            FileProcessResult::Success {
+                                path: path.clone(),
+                                display_path,
+                                content,
+                                mode: Some("full".to_string()),
+                                is_compressed: false,
+                                cache_hit: false,
+                            }
+                        }
+                    } else {
+                        FileProcessResult::Success {
+                            path: path.clone(),
+                            display_path,
+                            content,
+                            mode: None,
+                            is_compressed: false,
+                            cache_hit: false,
+                        }
+                    }
+                }
+                Err(e) => FileProcessResult::Error {
+                    display_path,
+                    error: e.to_string(),
+                },
+            }
+        })
+        .collect();
+
+    // Update cache with new entries (sequential to avoid data races)
+    if config.cache {
+        let cache_dir = cache::get_cache_dir(&config.path)?;
+        let cache_path = cache_dir.join("cache.bin");
+
+        for result in &results {
+            if let FileProcessResult::Success {
+                path,
+                display_path,
+                content,
+                mode,
+                cache_hit: false,
+                ..
+            } = result
+            {
+                if let Ok((mtime, size)) = cache::get_file_metadata(path) {
+                    let entry = CacheEntry {
+                        mtime,
+                        size,
+                        content: content.clone(),
+                        mode: mode.clone(),
+                        config_hash: config_hash.clone(),
+                    };
+                    cache.insert(display_path.clone(), entry);
+                }
+            }
+        }
+
+        // Prune stale entries
+        let paths_to_keep: Vec<&str> = results
+            .iter()
+            .filter_map(|r| match r {
+                FileProcessResult::Success { display_path, .. } => Some(display_path.as_str()),
+                _ => None,
+            })
+            .collect();
+        cache.prune_stale(&paths_to_keep);
+
+        // Save cache
+        cache.save(&cache_path)?;
+    }
+
+    // Write results sequentially (preserves deterministic order)
+    let mut cache_hits = 0;
+    let mut cache_misses = 0;
+
+    for result in results {
+        match result {
+            FileProcessResult::Success {
+                display_path,
+                content,
+                mode,
+                is_compressed,
+                cache_hit,
+                ..
+            } => {
+                if cache_hit {
+                    cache_hits += 1;
+                } else {
+                    cache_misses += 1;
+                }
+
+                if let Some(ref m) = mode {
+                    output.write_file_content_with_mode(&display_path, &content, Some(m.as_str()))?;
+                } else {
+                    output.write_file_content(&display_path, &content)?;
+                }
+                if is_compressed {
+                    stats.add_compressed();
+                }
+            }
+            FileProcessResult::Error {
+                display_path,
+                error,
+            } => {
+                eprintln!("Error reading {}: {}", display_path, error);
+            }
+        }
+    }
+
+    // Record cache statistics
+    if config.cache {
+        stats.cache_hits = cache_hits;
+        stats.cache_misses = cache_misses;
+    }
+
+    stats.add_output_bytes(output.bytes_written());
+    output.write_summary(stats)?;
     Ok(())
 }
 

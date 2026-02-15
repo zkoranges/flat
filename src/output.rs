@@ -17,6 +17,8 @@ pub struct Statistics {
     pub token_budget: Option<usize>,
     pub tokens_used: usize,
     pub excluded_by_budget: Vec<String>,
+    pub cache_hits: usize,    // v0.6.0: cache hits
+    pub cache_misses: usize,  // v0.6.0: cache misses
 }
 
 impl Statistics {
@@ -199,6 +201,20 @@ impl Statistics {
                     Self::format_tokens(self.estimated_tokens())
                 ));
             }
+        }
+
+        // Add cache statistics if available
+        if self.cache_hits > 0 || self.cache_misses > 0 {
+            let total = self.cache_hits + self.cache_misses;
+            let percentage = if total > 0 {
+                (self.cache_hits as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            };
+            summary.push_str(&format!(
+                "Cache: {} hits, {} misses ({:.1}%)\n",
+                self.cache_hits, self.cache_misses, percentage
+            ));
         }
 
         summary.push_str("</summary>\n");

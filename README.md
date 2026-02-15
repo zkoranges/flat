@@ -60,21 +60,24 @@ This gives you:
 
 ## Features
 
-| Feature | v0.4.0 | v0.5.0 | Details |
-|---------|:------:|:------:|---------|
-| **Tree-sitter compression** | ✓ | ✓ | 16 languages, 30-80% reduction |
-| **Real tokenizers** | ✓ | ✓ | Claude/GPT-4/GPT-3.5 (accurate) or heuristic (fast) |
-| **Token budgeting** | ✓ | ✓ | Fit any codebase into any context window |
-| **Priority scoring** | ✓ | ✓ | README=100, entry points=90, tests=30, fixtures=5 |
-| **Output formats** | ✓ | ✓ | XML, Markdown, JSON (structured, human-readable) |
-| **Custom templates** | | ✓ | Handlebars templates for custom output formats |
-| **GitHub URLs** | | ✓ | Clone and analyze repos with `--github owner/repo` |
-| **MCP server mode** | | ✓ | JSON-RPC server for Claude Desktop integration |
-| **Multi-platform** | ✓ | ✓ | macOS, Linux, Windows with native binaries |
-| **Safety by default** | ✓ | ✓ | Secrets excluded, binaries skipped, `.gitignore` respected |
-| **16 languages** | ✓ | ✓ | Rust, TS/JS, Python, Go, Java, C#, C, C++, Ruby, PHP, Solidity, Elixir, SQL, Bash |
-| **Fast** | ✓ | ✓ | 25k files in <3 seconds |
-| **Test coverage** | ✓ | ✓ | 280+ tests (unit + integration) |
+| Feature | v0.4.0 | v0.5.0 | v0.6.0 | Details |
+|---------|:------:|:------:|:------:|---------|
+| **Tree-sitter compression** | ✓ | ✓ | ✓ | 16 languages, 30-80% reduction |
+| **Real tokenizers** | ✓ | ✓ | ✓ | Claude/GPT-4/GPT-3.5 (accurate) or heuristic (fast) |
+| **Token budgeting** | ✓ | ✓ | ✓ | Fit any codebase into any context window |
+| **Priority scoring** | ✓ | ✓ | ✓ | README=100, entry points=90, tests=30, fixtures=5 |
+| **Output formats** | ✓ | ✓ | ✓ | XML, Markdown, JSON (structured, human-readable) |
+| **Custom templates** | | ✓ | ✓ | Handlebars templates for custom output formats |
+| **GitHub URLs** | | ✓ | ✓ | Clone and analyze repos with `--github owner/repo` |
+| **MCP server mode** | | ✓ | ✓ | JSON-RPC server for Claude Desktop integration |
+| **Multi-platform** | ✓ | ✓ | ✓ | macOS, Linux, Windows with native binaries |
+| **Safety by default** | ✓ | ✓ | ✓ | Secrets excluded, binaries skipped, `.gitignore` respected |
+| **16 languages** | ✓ | ✓ | ✓ | Rust, TS/JS, Python, Go, Java, C#, C, C++, Ruby, PHP, Solidity, Elixir, SQL, Bash |
+| **Fast** | ✓ | ✓ | ✓ | 25k files in <3 seconds |
+| **Parallel processing** | | | ✓ | 3-6x speedup on multi-core (--parallel) |
+| **Incremental caching** | | | ✓ | Instant re-runs for unchanged files (--no-cache to disable) |
+| **Watch mode** | | | ✓ | Auto-regenerate on file changes (--watch) |
+| **Test coverage** | ✓ | ✓ | ✓ | 350+ tests (unit + integration) |
 
 ## Output Templates
 
@@ -107,6 +110,61 @@ flat --template ~/.config/flat/my-template.hbs
 ```
 
 Template variables available: `{{files}}`, `{{statistics}}`, `{{repo_name}}`, `{{timestamp}}`
+
+## Performance Features (v0.6.0)
+
+Three new features for faster iteration:
+
+### Parallel Processing (`--parallel`)
+
+Process files in parallel on multi-core systems for 3-6x speedup:
+
+```bash
+flat --parallel                           # 3-6x faster on 4+ cores
+flat --compress --parallel                # works with all features
+```
+
+Output is byte-for-byte identical to sequential mode (deterministic).
+
+### Incremental Caching (`--cache`)
+
+Cache results per file, invalidate only changed files:
+
+```bash
+flat --cache                              # enables caching (default)
+flat --no-cache                           # disable caching
+```
+
+Cache is stored in `~/.cache/flat/{repo-hash}/cache.bin`. Second run is **10-100x faster** for unchanged projects.
+
+**Invalidation triggers:**
+- File modification time changes
+- File size changes
+- Compression config changes
+- Cache is automatically pruned of stale entries
+
+### Watch Mode (`--watch`)
+
+Auto-regenerate output on any file change:
+
+```bash
+flat --watch                              # monitor for changes
+flat --cache --watch --compress           # fastest iteration
+```
+
+Debounces rapid changes (500ms) to avoid excessive rebuilds. Press Ctrl+C to exit.
+
+**Examples:**
+```bash
+# Development workflow: compress + cache + watch
+flat --compress --cache --watch
+
+# Large repos with parallel + cache
+flat --parallel --cache -o output.xml
+
+# Quick iteration on specific files
+flat --watch -i rs,toml
+```
 
 ## Installation
 

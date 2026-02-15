@@ -43,6 +43,9 @@ pub struct Config {
     pub github_token: Option<String>,
     pub exclude_dirs: Option<Vec<String>>,
     pub no_ignore: bool,
+    pub parallel: bool,         // v0.6.0: Enable parallel processing
+    pub cache: bool,            // v0.6.0: Enable caching (default: true)
+    pub watch: bool,            // v0.6.0: Enable watch mode
 }
 
 impl Default for Config {
@@ -67,6 +70,9 @@ impl Default for Config {
             github_token: None,
             exclude_dirs: None,
             no_ignore: false,
+            parallel: false,        // Disabled by default
+            cache: true,            // Enabled by default
+            watch: false,           // Disabled by default
         }
     }
 }

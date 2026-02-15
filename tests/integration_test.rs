@@ -3661,3 +3661,325 @@ fn test_precedence_exclude_dir_over_include_filter() {
     assert!(stdout.contains("main.rs"));
     assert!(!stdout.contains("output.rs"));
 }
+
+// ============================================================================
+// Parallel Processing Tests (v0.6.0)
+// ============================================================================
+
+#[test]
+fn test_parallel_flag_basic() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--parallel")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("src/main.rs"));
+    assert!(stdout.contains("Total files:"));
+}
+
+#[test]
+fn test_parallel_determinism() {
+    // Run 1: parallel (no cache to ensure consistency)
+    let output1 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--parallel")
+        .arg("--no-cache")
+        .output()
+        .unwrap();
+
+    // Run 2: parallel (no cache to ensure consistency)
+    let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--parallel")
+        .arg("--no-cache")
+        .output()
+        .unwrap();
+
+    let stdout1 = String::from_utf8(output1.stdout).unwrap();
+    let stdout2 = String::from_utf8(output2.stdout).unwrap();
+
+    // Outputs must be identical (deterministic)
+    assert_eq!(
+        stdout1, stdout2,
+        "Parallel runs should produce identical output (deterministic)"
+    );
+}
+
+#[test]
+fn test_parallel_vs_sequential_equivalence() {
+    // Sequential run (no cache)
+    let output_seq = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--no-cache")
+        .output()
+        .unwrap();
+
+    // Parallel run (no cache)
+    let output_par = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--parallel")
+        .arg("--no-cache")
+        .output()
+        .unwrap();
+
+    let stdout_seq = String::from_utf8(output_seq.stdout).unwrap();
+    let stdout_par = String::from_utf8(output_par.stdout).unwrap();
+
+    // Parallel and sequential must produce identical output
+    assert_eq!(
+        stdout_seq, stdout_par,
+        "Parallel and sequential outputs must be identical"
+    );
+}
+
+#[test]
+fn test_parallel_error_handling() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path();
+
+    // Create test files
+    create_test_file(dir, "good.rs", "fn main() { println!(\"hello\"); }");
+    create_test_file(dir, "also_good.md", "# Test\nSome documentation");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .output()
+        .unwrap();
+
+    // Should succeed even with mixed content
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("good.rs"));
+    assert!(stdout.contains("also_good.md"));
+}
+
+#[test]
+fn test_parallel_with_compression() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--parallel")
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("compressed"));
+}
+
+// ============================================================================
+// Caching Tests (v0.6.0)
+// ============================================================================
+
+#[test]
+fn test_cache_basic() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path();
+
+    // Create test files
+    create_test_file(dir, "test.rs", "fn main() { println!(\"hello\"); }");
+    create_test_file(dir, "lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }");
+
+    // First run: cache misses
+    let output1 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .output()
+        .unwrap();
+
+    assert!(output1.status.success());
+    let stdout1 = String::from_utf8(output1.stdout).unwrap();
+    assert!(stdout1.contains("Cache: 0 hits, 2 misses")); // First run - all misses
+
+    // Second run: should have cache hits
+    let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .output()
+        .unwrap();
+
+    assert!(output2.status.success());
+    let stdout2 = String::from_utf8(output2.stdout).unwrap();
+    assert!(stdout2.contains("Cache: 2 hits, 0 misses")); // Second run - all hits
+}
+
+#[test]
+fn test_cache_invalidation_on_file_change() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path();
+
+    let test_file = dir.join("test.rs");
+
+    // First run
+    fs::write(&test_file, "fn main() {}").unwrap();
+    let output1 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .output()
+        .unwrap();
+
+    assert!(output1.status.success());
+    let stdout1 = String::from_utf8(output1.stdout).unwrap();
+    assert!(stdout1.contains("Cache: 0 hits, 1 miss")); // First run - miss
+
+    // Modify the file
+    std::thread::sleep(std::time::Duration::from_millis(100)); // Ensure different mtime
+    fs::write(&test_file, "fn main() { println!(\"updated\"); }").unwrap();
+
+    // Second run: should detect change and reprocess
+    let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .output()
+        .unwrap();
+
+    assert!(output2.status.success());
+    let stdout2 = String::from_utf8(output2.stdout).unwrap();
+    assert!(stdout2.contains("Cache: 0 hits, 1 miss")); // File changed - cache miss
+}
+
+#[test]
+fn test_no_cache_flag() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path();
+
+    create_test_file(dir, "test.rs", "fn main() {}");
+
+    // First run with cache
+    let output1 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .output()
+        .unwrap();
+
+    assert!(output1.status.success());
+
+    // Second run with --no-cache
+    let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .arg("--no-cache")
+        .output()
+        .unwrap();
+
+    assert!(output2.status.success());
+    let stdout2 = String::from_utf8(output2.stdout).unwrap();
+    // With --no-cache, should not show cache stats
+    assert!(!stdout2.contains("Cache:"));
+}
+
+#[test]
+fn test_cache_with_compression() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path();
+
+    create_test_file(dir, "test.rs", "fn main() { println!(\"hello\"); }");
+
+    // First run with compression
+    let output1 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output1.status.success());
+    let stdout1 = String::from_utf8(output1.stdout).unwrap();
+    assert!(stdout1.contains("compressed"));
+    assert!(stdout1.contains("Cache: 0 hits, 1 miss"));
+
+    // Second run with same compression
+    let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output2.status.success());
+    let stdout2 = String::from_utf8(output2.stdout).unwrap();
+    assert!(stdout2.contains("Cache: 1 hits, 0 misses")); // Compressed content is cached
+}
+
+#[test]
+fn test_cache_invalidation_on_compression_change() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path();
+
+    create_test_file(dir, "test.rs", "fn main() { println!(\"hello\"); }");
+
+    // First run with compression
+    let output1 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output1.status.success());
+
+    // Second run without compression - cache should be invalid (different config)
+    let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(dir)
+        .arg("--parallel")
+        .output()
+        .unwrap();
+
+    assert!(output2.status.success());
+    let stdout2 = String::from_utf8(output2.stdout).unwrap();
+    assert!(stdout2.contains("Cache: 0 hits, 1 miss")); // Config changed - cache miss
+}
+
+// ============================================================================
+// Watch Mode Tests (v0.6.0)
+// ============================================================================
+
+#[test]
+fn test_watch_invalid_combinations_with_dry_run() {
+    // --watch with --dry-run should error
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--watch")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot be used with --dry-run"));
+}
+
+#[test]
+fn test_watch_invalid_combinations_with_stats() {
+    // --watch with --stats should error
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--watch")
+        .arg("--stats")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot be used with --stats"));
+}
+
+#[test]
+fn test_watch_invalid_combinations_with_output() {
+    // --watch with --output should error
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--watch")
+        .arg("--output")
+        .arg("/tmp/test.xml")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot be used with --output"));
+}
