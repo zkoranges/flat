@@ -1,4 +1,5 @@
 use crate::filters::SkipReason;
+use crate::tokens::is_prose_extension;
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -9,6 +10,8 @@ pub struct Statistics {
     pub skipped_by_reason: HashMap<String, usize>,
     pub included_by_extension: HashMap<String, usize>,
     pub output_size: usize,
+    pub prose_bytes: usize,   // bytes from prose files (md, txt, rst, etc.)
+    pub code_bytes: usize,    // bytes from code files
     pub compressed_files: usize,
     pub token_budget: Option<usize>,
     pub tokens_used: usize,
@@ -27,13 +30,22 @@ impl Statistics {
         *self.included_by_extension.entry(ext).or_insert(0) += 1;
     }
 
-    pub fn add_file_size_estimate(&mut self, file_size: u64, path_length: usize) {
+    pub fn add_file_size_estimate(&mut self, file_size: u64, path_length: usize, extension: Option<&str>) {
         // Estimate XML overhead:
         // - Opening tag: <file path="..."> + newline = ~15 + path_length bytes
         // - Closing tag: </file>\n\n = 9 bytes
         // - Potential newline after content = 1 byte
         let overhead = 25 + path_length;
-        self.output_size += file_size as usize + overhead;
+        let total_bytes = file_size as usize + overhead;
+        self.output_size += total_bytes;
+
+        // Track by content type
+        let ext_str = extension.unwrap_or("");
+        if is_prose_extension(ext_str) {
+            self.prose_bytes += total_bytes;
+        } else {
+            self.code_bytes += total_bytes;
+        }
     }
 
     pub fn add_compressed(&mut self) {
@@ -50,6 +62,8 @@ impl Statistics {
 
     pub fn add_output_bytes(&mut self, bytes: usize) {
         self.output_size += bytes;
+        // Conservative: treat all as code (higher token estimate) when type unknown
+        self.code_bytes += bytes;
     }
 
     pub fn total_skipped(&self) -> usize {
@@ -57,8 +71,12 @@ impl Statistics {
     }
 
     pub fn estimated_tokens(&self) -> usize {
-        // Rough estimate: ~4 characters per token
-        self.output_size / 4
+        // Conservative estimation per PDR spec:
+        // - Code files: bytes / 3 (~3.0 chars/token)
+        // - Prose files: bytes / 4 (~4.0 chars/token)
+        let code_tokens = self.code_bytes / 3;
+        let prose_tokens = self.prose_bytes / 4;
+        code_tokens + prose_tokens
     }
 
     fn format_bytes(bytes: usize) -> String {

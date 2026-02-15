@@ -104,6 +104,7 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
                                     stats.add_file_size_estimate(
                                         compressed.len() as u64,
                                         path_str.len(),
+                                        path.extension().and_then(|e| e.to_str()),
                                     );
                                     stats.add_compressed();
                                     continue;
@@ -112,6 +113,7 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
                                     stats.add_file_size_estimate(
                                         original.len() as u64,
                                         path_str.len(),
+                                        path.extension().and_then(|e| e.to_str()),
                                     );
                                     continue;
                                 }
@@ -122,7 +124,11 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
             }
             // Non-compress mode, full-match files, or non-compressible files: use raw size
             if let Ok(metadata) = fs::metadata(path) {
-                stats.add_file_size_estimate(metadata.len(), path_str.len());
+                stats.add_file_size_estimate(
+                    metadata.len(),
+                    path_str.len(),
+                    path.extension().and_then(|e| e.to_str()),
+                );
             }
         }
         eprintln!("{}", stats.format_summary());
@@ -268,7 +274,11 @@ fn write_with_budget(
             match decision {
                 FileDecision::IncludeFull(content) | FileDecision::IncludeCompressed(content) => {
                     let path_str = candidate.path.display().to_string();
-                    stats.add_file_size_estimate(content.len() as u64, path_str.len());
+                    stats.add_file_size_estimate(
+                        content.len() as u64,
+                        path_str.len(),
+                        candidate.path.extension().and_then(|e| e.to_str()),
+                    );
                 }
                 FileDecision::Excluded => {}
             }
