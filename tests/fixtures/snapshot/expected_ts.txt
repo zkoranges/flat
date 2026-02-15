@@ -18,10 +18,10 @@ const helper = (x: number): number => {
 </file>
 
 <summary>
-Total files: 8
+Total files: 12
 Included: 1 (1 .ts)
 Compressed: 1 files
-Skipped: 7 (7 extension)
+Skipped: 11 (11 extension)
 Output size: 493 bytes (~164 tokens)
 </summary>
 

@@ -1,0 +1,26 @@
+<file path="tests/fixtures/snapshot/sample.sol" mode="compressed">
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+import "./OtherContract.sol";
+contract SampleContract {
+    uint256 public constant MAX_SUPPLY = 10000;
+    event Transfer(address indexed from, address indexed to, uint256 amount);
+    struct User {
+        string name;
+        uint256 balance;
+    }
+    enum Status { Pending, Active }
+    modifier onlyOwner() { ... }
+    function transfer(address to, uint256 amount) public { ... }
+    function getBalance(address account) public view returns (uint256) { ... }
+}
+</file>
+
+<summary>
+Total files: 12
+Included: 1 (1 .sol)
+Compressed: 1 files
+Skipped: 11 (11 extension)
+Output size: 599 bytes (~199 tokens)
+</summary>
+

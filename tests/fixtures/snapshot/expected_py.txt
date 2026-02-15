@@ -19,10 +19,10 @@ def standalone_function(a: int, b: int) -> int:
 </file>
 
 <summary>
-Total files: 8
+Total files: 12
 Included: 1 (1 .py)
 Compressed: 1 files
-Skipped: 7 (7 extension)
+Skipped: 11 (11 extension)
 Output size: 519 bytes (~173 tokens)
 </summary>
 

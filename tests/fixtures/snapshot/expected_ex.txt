@@ -1,0 +1,25 @@
+<file path="tests/fixtures/snapshot/sample.ex" mode="compressed">
+defmodule MyApp.User do
+  @moduledoc """
+  User module for managing user records
+  """
+  alias MyApp.Repo
+  use Ecto.Schema
+  defstruct [:name, :email]
+  @doc "Creates a new user with the given attributes"
+  def create(attrs) { ... }
+  @doc "Updates an existing user"
+  def update(user, attrs) { ... }
+  defp changeset(user, attrs) { ... }
+  defp validate_format(changeset, field, pattern) { ... }
+end
+</file>
+
+<summary>
+Total files: 12
+Included: 1 (1 .ex)
+Compressed: 1 files
+Skipped: 11 (11 extension)
+Output size: 477 bytes (~159 tokens)
+</summary>
+

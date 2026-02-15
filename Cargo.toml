@@ -1,6 +1,6 @@
 [package]
 name = "flat"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["zkoranges"]
 license = "MIT"
@@ -17,7 +17,7 @@ walkdir = "2.5"
 anyhow = "1.0"
 content_inspector = "0.2"
 globset = "0.4"
-tree-sitter = "0.24"
+tree-sitter = "0.25"
 tree-sitter-rust = "0.23"
 tree-sitter-typescript = "0.23"
 tree-sitter-python = "0.23"
@@ -28,6 +28,8 @@ tree-sitter-c = "0.23"
 tree-sitter-cpp = "0.23"
 tree-sitter-ruby = "0.23"
 tree-sitter-php = "0.23"
+tree-sitter-solidity = "1.2"
+tree-sitter-elixir = "0.3"
 
 [dev-dependencies]
 assert_cmd = "2.0"

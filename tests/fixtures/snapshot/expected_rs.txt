@@ -23,10 +23,10 @@ trait Validator {
 </file>
 
 <summary>
-Total files: 8
+Total files: 12
 Included: 1 (1 .rs)
 Compressed: 1 files
-Skipped: 7 (7 extension)
+Skipped: 11 (11 extension)
 Output size: 531 bytes (~177 tokens)
 </summary>
 

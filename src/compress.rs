@@ -1,5 +1,7 @@
 use std::path::Path;
 use tree_sitter::{Language, Parser};
+use tree_sitter_solidity;
+use tree_sitter_elixir;
 
 /// Languages supported for compression
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,6 +19,8 @@ pub enum CompressLanguage {
     Cpp,
     Ruby,
     Php,
+    Solidity,
+    Elixir,
 }
 
 /// Map a file extension to a compressible language
@@ -35,6 +39,8 @@ pub fn language_for_extension(ext: &str) -> Option<CompressLanguage> {
         "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some(CompressLanguage::Cpp),
         "rb" => Some(CompressLanguage::Ruby),
         "php" => Some(CompressLanguage::Php),
+        "sol" => Some(CompressLanguage::Solidity),
+        "ex" | "exs" => Some(CompressLanguage::Elixir),
         _ => None,
     }
 }
@@ -62,6 +68,8 @@ fn tree_sitter_language(lang: CompressLanguage) -> Language {
         CompressLanguage::Cpp => tree_sitter_cpp::LANGUAGE.into(),
         CompressLanguage::Ruby => tree_sitter_ruby::LANGUAGE.into(),
         CompressLanguage::Php => tree_sitter_php::LANGUAGE_PHP.into(),
+        CompressLanguage::Solidity => tree_sitter_solidity::LANGUAGE.into(),
+        CompressLanguage::Elixir => tree_sitter_elixir::LANGUAGE.into(),
     }
 }
 
@@ -156,6 +164,8 @@ fn compress_source_inner(source: &str, lang: CompressLanguage) -> CompressResult
         CompressLanguage::Cpp => compress_cpp(source, root),
         CompressLanguage::Ruby => compress_ruby(source, root),
         CompressLanguage::Php => compress_php(source, root),
+        CompressLanguage::Solidity => compress_solidity(source, root),
+        CompressLanguage::Elixir => compress_elixir(source, root),
     };
 
     if compressed.is_empty() {
@@ -1372,6 +1382,173 @@ fn compress_php_class(source: &str, node: tree_sitter::Node) -> String {
 }
 
 // ============================================================================
+// Solidity Compressor
+// ============================================================================
+
+fn compress_solidity(source: &str, root: tree_sitter::Node) -> String {
+    let mut output = String::new();
+    let mut cursor = root.walk();
+
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "contract_declaration" | "library_declaration" | "interface_declaration" => {
+                output.push_str(&compress_solidity_contract(source, child));
+                output.push('\n');
+            }
+            "pragma_directive" | "import_directive" | "comment" => {
+                output.push_str(node_text(source, child));
+                output.push('\n');
+            }
+            _ => {}
+        }
+    }
+
+    output.trim_end().to_string()
+}
+
+fn compress_solidity_contract(source: &str, node: tree_sitter::Node) -> String {
+    let mut output = String::new();
+    let mut cursor = node.walk();
+
+    for child in node.children(&mut cursor) {
+        if child.kind() == "contract_body" {
+            // Write contract header
+            output.push_str(source[node.start_byte()..child.start_byte()].trim_end());
+            output.push_str(" {\n");
+
+            // Process contract members
+            let mut inner_cursor = child.walk();
+            for item in child.children(&mut inner_cursor) {
+                match item.kind() {
+                    "function_definition" | "modifier_definition" => {
+                        push_indented(&mut output, "    ",
+                            &compress_body(source, item, &["function_body"]));
+                    }
+                    "state_variable_declaration" | "event_definition"
+                    | "struct_declaration" | "enum_declaration" | "comment" => {
+                        push_indented(&mut output, "    ", node_text(source, item));
+                    }
+                    _ => {}
+                }
+            }
+            output.push('}');
+            return output;
+        }
+    }
+
+    node_text(source, node).to_string()
+}
+
+// ============================================================================
+// Elixir Compressor
+// ============================================================================
+
+fn compress_elixir(source: &str, root: tree_sitter::Node) -> String {
+    let mut output = String::new();
+    let mut cursor = root.walk();
+
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "call" => {
+                if is_elixir_definition(&child, source) {
+                    output.push_str(&compress_elixir_call(source, child));
+                    output.push('\n');
+                }
+            }
+            "alias" | "import" | "require" | "use" | "comment" => {
+                output.push_str(node_text(source, child));
+                output.push('\n');
+            }
+            "unary_operator" => {
+                // Module attributes like @moduledoc
+                if node_text(source, child).starts_with('@') {
+                    output.push_str(node_text(source, child));
+                    output.push('\n');
+                }
+            }
+            _ => {}
+        }
+    }
+
+    output.trim_end().to_string()
+}
+
+fn is_elixir_definition(node: &tree_sitter::Node, source: &str) -> bool {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "identifier" {
+            let name = node_text(source, child);
+            return matches!(name, "defmodule" | "defprotocol" | "defimpl"
+                | "def" | "defp" | "defmacro" | "defmacrop"
+                | "defstruct" | "defdelegate" | "defguard"
+                | "alias" | "import" | "require" | "use");
+        }
+    }
+    false
+}
+
+fn compress_elixir_call(source: &str, node: tree_sitter::Node) -> String {
+    let mut cursor = node.walk();
+    let mut def_name = String::new();
+
+    for child in node.children(&mut cursor) {
+        if child.kind() == "identifier" {
+            def_name = node_text(source, child).to_string();
+            break;
+        }
+    }
+
+    // Compress function bodies
+    if matches!(def_name.as_str(), "def" | "defp" | "defmacro" | "defmacrop") {
+        return compress_body(source, node, &["do_block"]);
+    }
+
+    // Expand modules and process children
+    if matches!(def_name.as_str(), "defmodule" | "defprotocol" | "defimpl") {
+        return compress_elixir_module(source, node);
+    }
+
+    // Keep other definitions as-is
+    node_text(source, node).to_string()
+}
+
+fn compress_elixir_module(source: &str, node: tree_sitter::Node) -> String {
+    let mut output = String::new();
+    let mut cursor = node.walk();
+
+    for child in node.children(&mut cursor) {
+        if child.kind() == "do_block" {
+            output.push_str(source[node.start_byte()..child.start_byte()].trim_end());
+            output.push_str(" do\n");
+
+            let mut inner_cursor = child.walk();
+            for item in child.children(&mut inner_cursor) {
+                match item.kind() {
+                    "call" => {
+                        if is_elixir_definition(&item, source) {
+                            push_indented(&mut output, "  ", &compress_elixir_call(source, item));
+                        }
+                    }
+                    "alias" | "import" | "require" | "use" | "comment" => {
+                        push_indented(&mut output, "  ", node_text(source, item));
+                    }
+                    "unary_operator" => {
+                        if node_text(source, item).starts_with('@') {
+                            push_indented(&mut output, "  ", node_text(source, item));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            output.push_str("end");
+            return output;
+        }
+    }
+
+    node_text(source, node).to_string()
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1395,6 +1572,9 @@ mod tests {
         assert_eq!(language_for_extension("jsx"), Some(CompressLanguage::Jsx));
         assert_eq!(language_for_extension("py"), Some(CompressLanguage::Python));
         assert_eq!(language_for_extension("go"), Some(CompressLanguage::Go));
+        assert_eq!(language_for_extension("sol"), Some(CompressLanguage::Solidity));
+        assert_eq!(language_for_extension("ex"), Some(CompressLanguage::Elixir));
+        assert_eq!(language_for_extension("exs"), Some(CompressLanguage::Elixir));
         assert_eq!(language_for_extension("md"), None);
         assert_eq!(language_for_extension("toml"), None);
     }
@@ -2371,4 +2551,68 @@ private:
             }
         }
     }
+
+    // Solidity compression tests
+    #[test]
+    fn test_compress_solidity_contract() {
+        let source = r#"pragma solidity ^0.8.0;
+
+contract Test {
+    uint256 public x;
+
+    event Transfer(address indexed from, uint256 amount);
+
+    function transfer(address to, uint256 amount) public {
+        x += amount;
+        emit Transfer(to, amount);
+    }
+}"#;
+        match compress_source(source, CompressLanguage::Solidity) {
+            CompressResult::Compressed(output) => {
+                assert!(output.contains("pragma solidity"));
+                assert!(output.contains("uint256 public x;"));
+                assert!(output.contains("event Transfer"));
+                assert!(output.contains("function transfer"));
+                assert!(output.contains("{ ... }"));
+                assert!(!output.contains("x += amount"));
+            }
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
+        }
+    }
+
+    // Elixir compression tests
+    #[test]
+    fn test_compress_elixir_module() {
+        let source = r#"defmodule MyApp do
+  alias MyApp.Repo
+  use GenServer
+
+  @moduledoc "My application"
+
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  defp handle_info(msg, state) do
+    {:noreply, state}
+  end
+end"#;
+        match compress_source(source, CompressLanguage::Elixir) {
+            CompressResult::Compressed(output) => {
+                assert!(output.contains("defmodule MyApp"));
+                assert!(output.contains("alias MyApp.Repo"));
+                assert!(output.contains("use GenServer"));
+                assert!(output.contains("@moduledoc"));
+                assert!(output.contains("def start_link"));
+                assert!(output.contains("{ ... }"));
+                assert!(!output.contains("GenServer.start_link"));
+            }
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
+        }
+    }
+
 }

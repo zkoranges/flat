@@ -1147,6 +1147,42 @@ fn test_snapshot_go_compression() {
     );
 }
 
+#[test]
+fn test_snapshot_solidity_compression() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--include")
+        .arg("sol")
+        .output()
+        .expect("Failed to execute command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = fs::read_to_string("tests/fixtures/snapshot/expected_sol.txt").unwrap();
+    assert_eq!(
+        stdout.as_ref(),
+        expected.as_str(),
+        "Solidity compression output changed from golden file"
+    );
+}
+
+#[test]
+fn test_snapshot_elixir_compression() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/snapshot")
+        .arg("--compress")
+        .arg("--include")
+        .arg("ex")
+        .output()
+        .expect("Failed to execute command");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = fs::read_to_string("tests/fixtures/snapshot/expected_ex.txt").unwrap();
+    assert_eq!(
+        stdout.as_ref(),
+        expected.as_str(),
+        "Elixir compression output changed from golden file"
+    );
+}
+
 // ============================================================================
 // Mutation-Killing Tests — Cover Surviving Mutants
 // ============================================================================

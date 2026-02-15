@@ -14,10 +14,10 @@ func formatName(first, last string) string { ... }
 </file>
 
 <summary>
-Total files: 8
+Total files: 12
 Included: 1 (1 .go)
 Compressed: 1 files
-Skipped: 7 (7 extension)
+Skipped: 11 (11 extension)
 Output size: 319 bytes (~106 tokens)
 </summary>
 
