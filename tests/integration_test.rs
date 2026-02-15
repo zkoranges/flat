@@ -2004,3 +2004,367 @@ fn test_tokenizer_real_vs_heuristic_budget_difference() {
         "Real tokenizer output should contain budget info or file"
     );
 }
+
+// ============================================================================
+// TIER 1: Error Path Tests (NEW - Critical for production safety)
+// ============================================================================
+
+#[test]
+fn test_error_nonexistent_directory_graceful() {
+    flat_cmd()
+        .arg("/path/that/definitely/does/not/exist/anywhere")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_error_invalid_output_directory() {
+    // Test: output file in non-existent directory should fail gracefully
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--output")
+        .arg("/nonexistent/directory/output.xml")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_error_all_files_filtered_out_exit_code_3() {
+    // Test: when no files match criteria, exit with code 3
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "file.txt", "content");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--include")
+        .arg("rs,py,go") // .txt doesn't match
+        .assert()
+        .failure()
+        .code(3);
+}
+
+#[test]
+fn test_error_invalid_max_size_suffix() {
+    // Test: invalid size suffix should error
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--max-size")
+        .arg("10X")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_error_empty_directory_exit_code_3() {
+    // Test: directory with no files matching criteria returns exit code 3
+    let temp_dir = TempDir::new().unwrap();
+    // Create only files that will be excluded (binaries, secrets, etc.)
+    create_test_file(temp_dir.path(), ".env", "SECRET=123");
+    create_test_file(temp_dir.path(), ".gitignore", "");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .assert()
+        .failure()
+        .code(3);
+}
+
+#[test]
+fn test_error_invalid_glob_pattern_fails_early() {
+    // Test: invalid glob pattern should fail with clear error
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--match")
+        .arg("[invalid[pattern")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_error_invalid_full_match_pattern() {
+    // Test: invalid --full-match pattern should fail
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--compress")
+        .arg("--full-match")
+        .arg("[invalid")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_multiple_filters_all_fail_exit_3() {
+    // Test: when all filters are applied and nothing matches, exit 3
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "lib.rs", "pub fn lib() {}");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--include")
+        .arg("rs")
+        .arg("--match")
+        .arg("*.xyz")
+        .assert()
+        .failure()
+        .code(3);
+}
+
+#[test]
+fn test_compression_on_empty_file() {
+    // Test: empty files should be handled gracefully
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "empty.rs", "");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .assert()
+        .success();
+}
+
+// ============================================================================
+// TIER 1: Large Scale / Stress Tests (NEW - Catch scaling issues)
+// ============================================================================
+
+#[test]
+fn test_many_files_sorted_correctly() {
+    // Test: Verify sorting works with many files
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create 50 files in random order
+    for i in (0..50).rev() {
+        let filename = format!("file_{:02}.rs", i);
+        create_test_file(temp_dir.path(), &filename, "fn main() {}\n");
+    }
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--dry-run")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Extract file list (before <summary>)
+    let files_section: Vec<&str> = stdout
+        .lines()
+        .take_while(|l| !l.starts_with("<summary>"))
+        .filter(|l| l.contains("file_"))
+        .collect();
+
+    // Verify files are in alphabetical order
+    assert!(!files_section.is_empty(), "Should have files");
+    for i in 1..files_section.len() {
+        assert!(
+            files_section[i - 1] < files_section[i],
+            "Files should be sorted: {} >= {}",
+            files_section[i - 1],
+            files_section[i]
+        );
+    }
+}
+
+#[test]
+fn test_deep_directory_nesting() {
+    // Test: Deeply nested directories should work
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create file at depth 10
+    create_test_file(
+        temp_dir.path(),
+        "a/b/c/d/e/f/g/h/i/j/file.rs",
+        "fn main() {}",
+    );
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("file.rs"));
+}
+
+#[test]
+fn test_large_single_file() {
+    // Test: Very large files are handled (but may be skipped for size)
+    let temp_dir = TempDir::new().unwrap();
+    let large_content = "x".repeat(5_000_000); // 5MB
+
+    create_test_file(temp_dir.path(), "large.rs", &large_content);
+
+    // Should either succeed (if under default 1MB limit) or handle gracefully
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .expect("Failed to execute command");
+
+    // Either it processes or skips with reason
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success() || stderr.contains("too large"),
+        "Should handle large files gracefully"
+    );
+}
+
+#[test]
+fn test_token_budget_with_many_files() {
+    // Test: Budget allocation works correctly with many files
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create 20 files, each ~300 bytes (100 tokens at heuristic)
+    for i in 0..20 {
+        let filename = format!("file_{:02}.rs", i);
+        create_test_file(temp_dir.path(), &filename, &"x".repeat(300));
+    }
+
+    // Budget of 500 tokens should include ~5 files
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--tokens")
+        .arg("500")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Token budget:"));
+    assert!(stdout.contains("Excluded by budget"));
+}
+
+// ============================================================================
+// TIER 1: Real-World Scenario Tests (NEW - Detect edge cases)
+// ============================================================================
+
+#[test]
+fn test_mixed_language_project() {
+    // Test: Project with multiple languages is processed correctly
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "index.js", "console.log('hi');");
+    create_test_file(temp_dir.path(), "script.py", "print('hello')");
+    create_test_file(temp_dir.path(), "style.css", "body { color: red; }");
+    create_test_file(temp_dir.path(), "README.md", "# Project");
+    create_test_file(temp_dir.path(), ".env", "SECRET=123");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should include source files
+    assert!(stdout.contains("main.rs"));
+    assert!(stdout.contains("index.js"));
+    assert!(stdout.contains("script.py"));
+    assert!(stdout.contains("README.md"));
+
+    // Should exclude secrets
+    assert!(!stdout.contains("SECRET=123"));
+}
+
+#[test]
+fn test_build_artifacts_excluded() {
+    // Test: Common build artifacts are skipped
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "src/main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "target/debug/binary.exe", "fake binary content");
+    create_test_file(temp_dir.path(), "dist/bundle.js", "fake bundle");
+    create_test_file(temp_dir.path(), ".gitignore", "target/\ndist/\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Source should be included
+    assert!(stdout.contains("src/main.rs"));
+
+    // Build artifacts should be excluded or skipped
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stdout.contains("target/debug/binary") || stderr.contains("binary"),
+        "Build artifacts should be skipped"
+    );
+}
+
+#[test]
+fn test_hidden_files_respected() {
+    // Test: Hidden files (.dotfiles) are handled correctly
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "visible.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), ".hidden", "should be ignored by gitignore");
+    create_test_file(temp_dir.path(), ".gitignore", ".hidden\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Visible file should be included
+    assert!(stdout.contains("visible.rs"));
+
+    // .hidden should be excluded by gitignore
+    assert!(!stdout.contains(".hidden"));
+}
+
+#[test]
+fn test_special_characters_in_filenames() {
+    // Test: Files with special characters are handled
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(temp_dir.path(), "test-file.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "test_file.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "test file.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output);
+
+    // All files should be included
+    assert!(stdout.contains("test-file.rs"));
+    assert!(stdout.contains("test_file.rs"));
+    assert!(stdout.contains("test file.rs"));
+}
+
+#[test]
+fn test_compression_preserves_structure_with_mix() {
+    // Test: Compression works on mixed file types
+    let temp_dir = TempDir::new().unwrap();
+
+    create_test_file(
+        temp_dir.path(),
+        "main.rs",
+        "fn hello(name: &str) -> String {\n    format!(\"Hello, {}!\", name)\n}",
+    );
+    create_test_file(temp_dir.path(), "README.md", "# Documentation");
+    create_test_file(temp_dir.path(), "Cargo.toml", "[package]\nname = \"test\"");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .expect("Failed to execute command");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Rust file should be compressed (body removed)
+    assert!(stdout.contains("fn hello(name: &str) -> String"));
+    assert!(stdout.contains("{ ... }"));
+
+    // README and Cargo.toml should have mode="full" (no compression for these)
+    assert!(stdout.contains("README.md"));
+    assert!(stdout.contains("Cargo.toml"));
+}

@@ -469,6 +469,7 @@ fn should_skip(path: &Path, config: &Config) -> Option<SkipReason> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use globset::Glob;
 
     #[test]
     fn test_should_skip_secret() {
@@ -524,5 +525,85 @@ mod tests {
             Some(SkipReason::Match)
         );
         assert_eq!(should_skip(Path::new("user_test.go"), &config), None);
+    }
+
+    // ========================================================================
+    // NEW: Compression Integration Tests (TIER 1)
+    // ========================================================================
+
+    #[test]
+    fn test_maybe_compress_respects_full_match() {
+        // IMPORTANT: Full-match patterns should bypass compression
+        // This is critical for preserving exact code when needed
+        let config = Config {
+            full_match_patterns: Some(vec![Glob::new("main.rs").unwrap().compile_matcher()]),
+            compress: true,
+            ..Default::default()
+        };
+
+        let content = "fn main() {\n    println!(\"hello\");\n}";
+        let result = maybe_compress(&config, Path::new("main.rs"), content, &mut Statistics::new());
+
+        match result {
+            FileDecision::IncludeFull(c) => assert!(c.contains("println!")),
+            _ => panic!("Expected IncludeFull for full-match file"),
+        }
+    }
+
+    #[test]
+    fn test_maybe_compress_handles_unsupported_language() {
+        // IMPORTANT: Unsupported languages should not be corrupted
+        // We must return full content, not try to compress unknown formats
+        let config = Config {
+            compress: true,
+            ..Default::default()
+        };
+
+        let content = "[package]\nname = \"test\"";
+        let result = maybe_compress(&config, Path::new("config.toml"), content, &mut Statistics::new());
+
+        match result {
+            FileDecision::IncludeFull(c) => assert_eq!(c, content),
+            _ => panic!("Expected IncludeFull for unsupported language"),
+        }
+    }
+
+    // ========================================================================
+    // NEW: Skip Logic Tests (TIER 1)
+    // ========================================================================
+
+    #[test]
+    fn test_should_skip_respects_extension_filtering() {
+        // IMPORTANT: Extension filtering must work correctly
+        // This prevents analysis of unwanted file types
+        let config = Config {
+            include_extensions: Some(vec!["rs".to_string()]),
+            ..Default::default()
+        };
+
+        // Should skip: wrong extension
+        assert_eq!(
+            should_skip(Path::new("config.json"), &config),
+            Some(SkipReason::Extension)
+        );
+
+        // Should not skip: correct extension
+        assert_eq!(should_skip(Path::new("main.rs"), &config), None);
+    }
+
+    #[test]
+    fn test_should_skip_priority_secret_over_extension() {
+        // IMPORTANT: Secrets must always be skipped, even if extension matches
+        // This is a security feature that cannot be overridden
+        let config = Config {
+            include_extensions: Some(vec!["env".to_string()]), // Hypothetically include .env
+            ..Default::default()
+        };
+
+        // Secret check should have priority
+        assert_eq!(
+            should_skip(Path::new(".env"), &config),
+            Some(SkipReason::Secret)
+        );
     }
 }
