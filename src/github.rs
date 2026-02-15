@@ -80,7 +80,7 @@ pub fn parse_github_url(input: &str) -> Result<GitHubUrl> {
 
     // Format 3: https://github.com/owner/repo or variations
     if let Ok(url) = Url::parse(input) {
-        if url.host_str().map_or(false, |h| h.contains("github.com")) {
+        if url.host_str().is_some_and(|h| h.contains("github.com")) {
             let path = url.path();
             let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
 

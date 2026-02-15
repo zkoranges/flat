@@ -2892,7 +2892,7 @@ END;
                 // Trigger definition should be preserved (tree-sitter-sequel may fall back on complex PL/pgSQL)
                 assert!(output.contains("orders") || output.contains("update_timestamp"));
             }
-            CompressResult::Fallback(_, reason) => {
+            CompressResult::Fallback(_, _reason) => {
                 // This is acceptable - tree-sitter-sequel may not fully support all SQL dialects
                 // The important thing is that simple DDL works
             }
