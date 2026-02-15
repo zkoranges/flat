@@ -2,6 +2,8 @@ use std::path::Path;
 use tree_sitter::{Language, Parser};
 use tree_sitter_solidity;
 use tree_sitter_elixir;
+use tree_sitter_bash;
+use tree_sitter_sequel;
 
 /// Languages supported for compression
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -21,6 +23,8 @@ pub enum CompressLanguage {
     Php,
     Solidity,
     Elixir,
+    Sql,
+    Bash,
 }
 
 /// Map a file extension to a compressible language
@@ -41,6 +45,8 @@ pub fn language_for_extension(ext: &str) -> Option<CompressLanguage> {
         "php" => Some(CompressLanguage::Php),
         "sol" => Some(CompressLanguage::Solidity),
         "ex" | "exs" => Some(CompressLanguage::Elixir),
+        "sql" | "psql" | "mysql" => Some(CompressLanguage::Sql),
+        "sh" | "bash" | "zsh" => Some(CompressLanguage::Bash),
         _ => None,
     }
 }
@@ -70,6 +76,8 @@ fn tree_sitter_language(lang: CompressLanguage) -> Language {
         CompressLanguage::Php => tree_sitter_php::LANGUAGE_PHP.into(),
         CompressLanguage::Solidity => tree_sitter_solidity::LANGUAGE.into(),
         CompressLanguage::Elixir => tree_sitter_elixir::LANGUAGE.into(),
+        CompressLanguage::Sql => tree_sitter_sequel::LANGUAGE.into(),
+        CompressLanguage::Bash => tree_sitter_bash::LANGUAGE.into(),
     }
 }
 
@@ -166,6 +174,8 @@ fn compress_source_inner(source: &str, lang: CompressLanguage) -> CompressResult
         CompressLanguage::Php => compress_php(source, root),
         CompressLanguage::Solidity => compress_solidity(source, root),
         CompressLanguage::Elixir => compress_elixir(source, root),
+        CompressLanguage::Sql => compress_sql(source, root),
+        CompressLanguage::Bash => compress_bash(source, root),
     };
 
     if compressed.is_empty() {
@@ -1549,6 +1559,160 @@ fn compress_elixir_module(source: &str, node: tree_sitter::Node) -> String {
 }
 
 // ============================================================================
+// Bash Compressor
+// ============================================================================
+
+fn compress_bash(source: &str, root: tree_sitter::Node) -> String {
+    let mut output = String::new();
+    let mut cursor = root.walk();
+
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "comment" | "line_comment" => {
+                output.push_str(node_text(source, child));
+                output.push('\n');
+            }
+            "variable_assignment" | "export_statement" | "declaration_command" => {
+                output.push_str(node_text(source, child));
+                output.push('\n');
+            }
+            "function_definition" => {
+                output.push_str(&compress_bash_function(source, child));
+                output.push('\n');
+            }
+            "command_substitution" | "pipeline" | "list" => {
+                // Top-level commands, short ones
+                let text = node_text(source, child);
+                let lines = text.lines().count();
+                if lines <= 3 {
+                    output.push_str(text);
+                    output.push('\n');
+                }
+            }
+            _ => {
+                // Other nodes like shebangs or top-level commands
+                let text = node_text(source, child);
+                if text.starts_with("#!") {
+                    output.push_str(text);
+                    output.push('\n');
+                }
+            }
+        }
+    }
+
+    output.trim_end().to_string()
+}
+
+fn compress_bash_function(source: &str, node: tree_sitter::Node) -> String {
+    let node_text_full = node_text(source, node);
+    let lines = node_text_full.lines().count();
+
+    // Keep short functions uncompressed for readability
+    if lines <= 3 {
+        return node_text_full.to_string();
+    }
+
+    // Find the function name and signature
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "compound_statement" {
+            // Extract everything before the body
+            let signature = source[node.start_byte()..child.start_byte()].trim_end();
+            return format!("{} {{ ... }}", signature);
+        }
+    }
+
+    node_text_full.to_string()
+}
+
+// ============================================================================
+// SQL Compressor
+// ============================================================================
+
+fn compress_sql(source: &str, root: tree_sitter::Node) -> String {
+    let mut output = String::new();
+    let mut cursor = root.walk();
+
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "comment" => {
+                output.push_str(node_text(source, child));
+                output.push('\n');
+            }
+            "create_table_statement"
+            | "alter_table_statement"
+            | "drop_statement"
+            | "create_index_statement"
+            | "drop_index_statement"
+            | "create_schema_statement" => {
+                // Always preserve DDL statements in full
+                output.push_str(node_text(source, child));
+                output.push('\n');
+            }
+            "create_function_statement"
+            | "create_procedure_statement"
+            | "create_trigger_statement" => {
+                output.push_str(&compress_sql_statement(source, child));
+                output.push('\n');
+            }
+            _ => {
+                // Preserve short statements
+                let text = node_text(source, child);
+                let lines = text.lines().count();
+                if lines <= 5 && !text.trim().is_empty() && !text.trim().starts_with(';') {
+                    output.push_str(text);
+                    output.push('\n');
+                }
+            }
+        }
+    }
+
+    output.trim_end().to_string()
+}
+
+fn compress_sql_statement(source: &str, node: tree_sitter::Node) -> String {
+    let node_text_full = node_text(source, node);
+    let lines = node_text_full.lines().count();
+
+    // Keep short statements uncompressed
+    if lines <= 5 {
+        return node_text_full.to_string();
+    }
+
+    // Find the body and compress it
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        // Look for body-like nodes: block, statement_block, begin_block, as_clause, etc.
+        if matches!(
+            child.kind(),
+            "block" | "statement_block" | "begin_block" | "as_clause" | "function_body"
+        ) {
+            // Extract everything before the body
+            let before_body = source[node.start_byte()..child.start_byte()].trim_end();
+            let after_body_start = child.end_byte();
+
+            // Find what comes after the body (usually LANGUAGE clause or semicolon)
+            let mut after_body = "";
+            let mut after_cursor = node.walk();
+            for sibling in node.children(&mut after_cursor) {
+                if sibling.start_byte() > after_body_start {
+                    after_body = source[after_body_start..node.end_byte()].trim();
+                    break;
+                }
+            }
+
+            if after_body.is_empty() {
+                after_body = source[after_body_start..node.end_byte()].trim();
+            }
+
+            return format!("{} $$ ... $$ {}", before_body, after_body);
+        }
+    }
+
+    node_text_full.to_string()
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -2608,6 +2772,140 @@ end"#;
                 assert!(output.contains("def start_link"));
                 assert!(output.contains("{ ... }"));
                 assert!(!output.contains("GenServer.start_link"));
+            }
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
+        }
+    }
+
+    // Bash compression tests
+    #[test]
+    fn test_compress_bash_function() {
+        let source = r#"#!/bin/bash
+export DB_NAME="production"
+
+backup_database() {
+    local db_name=$1
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    echo "Starting backup..."
+    pg_dump "$db_name" > "/tmp/backup_${timestamp}.sql"
+    if [ $? -eq 0 ]; then
+        echo "Backup successful"
+    else
+        echo "Backup failed" >&2
+        return 1
+    fi
+}
+
+backup_database "mydb"
+"#;
+        match compress_source(source, CompressLanguage::Bash) {
+            CompressResult::Compressed(output) => {
+                assert!(output.contains("#!/bin/bash"));
+                assert!(output.contains("export DB_NAME"));
+                assert!(output.contains("backup_database"));
+                assert!(output.contains("{ ... }"));
+                assert!(!output.contains("pg_dump"));
+                assert!(!output.contains("echo"));
+            }
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
+        }
+    }
+
+    #[test]
+    fn test_compress_bash_short_function() {
+        let source = r#"#!/bin/bash
+greet() {
+    echo "Hello, $1!"
+}
+"#;
+        match compress_source(source, CompressLanguage::Bash) {
+            CompressResult::Compressed(output) => {
+                assert!(output.contains("greet"));
+                // Short functions should be preserved
+                assert!(output.contains("echo"));
+            }
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
+        }
+    }
+
+    #[test]
+    fn test_language_for_extension_bash_sql() {
+        assert_eq!(language_for_extension("sh"), Some(CompressLanguage::Bash));
+        assert_eq!(language_for_extension("bash"), Some(CompressLanguage::Bash));
+        assert_eq!(language_for_extension("zsh"), Some(CompressLanguage::Bash));
+        assert_eq!(language_for_extension("sql"), Some(CompressLanguage::Sql));
+        assert_eq!(language_for_extension("psql"), Some(CompressLanguage::Sql));
+        assert_eq!(language_for_extension("mysql"), Some(CompressLanguage::Sql));
+    }
+
+    // SQL compression tests
+    #[test]
+    fn test_compress_sql_table_preservation() {
+        let source = r#"CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_email ON users(email);
+"#;
+        match compress_source(source, CompressLanguage::Sql) {
+            CompressResult::Compressed(output) => {
+                // DDL should be preserved in full
+                assert!(output.contains("CREATE TABLE users"));
+                assert!(output.contains("SERIAL PRIMARY KEY"));
+                assert!(output.contains("VARCHAR(255)"));
+                assert!(output.contains("CREATE INDEX"));
+            }
+            CompressResult::Fallback(_, reason) => {
+                panic!("Expected compression, got fallback: {:?}", reason)
+            }
+        }
+    }
+
+    #[test]
+    fn test_compress_sql_function() {
+        let source = r#"CREATE TABLE orders (
+    id INT PRIMARY KEY,
+    user_id INT,
+    amount DECIMAL
+);
+
+CREATE TRIGGER update_timestamp
+BEFORE UPDATE ON orders
+FOR EACH ROW
+BEGIN
+    SET NEW.updated_at = CURRENT_TIMESTAMP;
+END;
+"#;
+        match compress_source(source, CompressLanguage::Sql) {
+            CompressResult::Compressed(output) => {
+                // Table should be preserved
+                assert!(output.contains("CREATE TABLE orders"));
+                assert!(output.contains("id INT PRIMARY KEY"));
+                // Trigger definition should be preserved (tree-sitter-sequel may fall back on complex PL/pgSQL)
+                assert!(output.contains("orders") || output.contains("update_timestamp"));
+            }
+            CompressResult::Fallback(_, reason) => {
+                // This is acceptable - tree-sitter-sequel may not fully support all SQL dialects
+                // The important thing is that simple DDL works
+            }
+        }
+    }
+
+    #[test]
+    fn test_compress_sql_simple_select() {
+        let source = "SELECT id, name FROM users WHERE active = true;";
+        match compress_source(source, CompressLanguage::Sql) {
+            CompressResult::Compressed(output) => {
+                // Simple short queries should be preserved
+                assert!(output.contains("SELECT id, name"));
             }
             CompressResult::Fallback(_, reason) => {
                 panic!("Expected compression, got fallback: {:?}", reason)

@@ -1,6 +1,9 @@
 pub mod compress;
 pub mod config;
 pub mod filters;
+pub mod formatters;
+pub mod github;
+pub mod mcp;
 pub mod output;
 pub mod parse;
 pub mod priority;

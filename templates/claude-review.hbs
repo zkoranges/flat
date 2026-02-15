@@ -1,0 +1,29 @@
+# Code Review Request
+
+**Repository:** {{repo_name}}
+**Generated:** {{timestamp}}
+
+## Statistics
+
+- **Total files:** {{statistics.total_files}}
+- **Included files:** {{statistics.included_files}}
+- **Output size:** {{statistics.output_size}} bytes
+{{#if statistics.compressed_files}}
+- **Compressed files:** {{statistics.compressed_files}}
+{{/if}}
+
+## Files
+
+{{#each files}}
+### `{{path}}`
+{{#if extension}}
+_Language: {{extension}}_
+{{/if}}
+
+\`\`\`{{extension}}
+{{content}}
+\`\`\`
+
+---
+
+{{/each}}

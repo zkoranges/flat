@@ -2,6 +2,26 @@ use crate::tokens::TokenizerKind;
 use globset::GlobMatcher;
 use std::path::PathBuf;
 
+/// Output format for the flattened code
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutputFormat {
+    Xml,
+    Json,
+    PlainText, // For dry-run mode
+    Template(String), // Template name (e.g., "minimal", "claude-review", or path)
+}
+
+impl OutputFormat {
+    pub fn from_string(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "xml" => Some(OutputFormat::Xml),
+            "json" => Some(OutputFormat::Json),
+            "plaintext" => Some(OutputFormat::PlainText),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub path: PathBuf,
@@ -17,6 +37,12 @@ pub struct Config {
     pub full_match_patterns: Option<Vec<GlobMatcher>>,
     pub token_budget: Option<usize>,
     pub tokenizer: TokenizerKind,
+    pub output_format: OutputFormat,
+    pub template: Option<String>,
+    pub github: bool,
+    pub github_token: Option<String>,
+    pub exclude_dirs: Option<Vec<String>>,
+    pub no_ignore: bool,
 }
 
 impl Default for Config {
@@ -35,6 +61,12 @@ impl Default for Config {
             full_match_patterns: None,
             token_budget: None,
             tokenizer: TokenizerKind::default(),
+            output_format: OutputFormat::Xml,
+            template: None,
+            github: false,
+            github_token: None,
+            exclude_dirs: None,
+            no_ignore: false,
         }
     }
 }

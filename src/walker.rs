@@ -1,5 +1,5 @@
 use crate::compress::{compress_source, language_for_path, CompressResult};
-use crate::config::Config;
+use crate::config::{Config, OutputFormat};
 use crate::filters::{
     exceeds_size_limit, is_binary_content, is_binary_extension, is_secret_file, SkipReason,
 };
@@ -7,6 +7,7 @@ use crate::output::{OutputWriter, Statistics};
 use crate::priority::score_file;
 use crate::tokens::{is_prose_extension, Tokenizer};
 use anyhow::{Context, Result};
+use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
 use std::fs;
 use std::io::Write;
@@ -33,10 +34,28 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
 
     // Build the walker with gitignore support
     let mut builder = WalkBuilder::new(&config.path);
-    builder.standard_filters(true);
 
+    // Enable standard filters (.gitignore, .git/info/exclude, etc.) unless --no-ignore
+    builder.standard_filters(!config.no_ignore);
+
+    // Add custom ignore file if specified and gitignore is not disabled
     if let Some(ref gitignore_path) = config.gitignore_path {
-        builder.add_custom_ignore_filename(gitignore_path);
+        if !config.no_ignore {
+            builder.add_custom_ignore_filename(gitignore_path);
+        }
+    }
+
+    // Apply directory exclusions via overrides
+    if let Some(ref exclude_dirs) = config.exclude_dirs {
+        let mut override_builder = OverrideBuilder::new(&config.path);
+        for dir_pattern in exclude_dirs {
+            // Convert to gitignore-style exclusion pattern: !dir/**
+            let pattern = format!("!{}/**", dir_pattern);
+            override_builder
+                .add(&pattern)
+                .with_context(|| format!("Invalid exclude-dir pattern: {}", dir_pattern))?;
+        }
+        builder.overrides(override_builder.build()?);
     }
 
     // Create output writer
@@ -48,7 +67,43 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
         None => Box::new(std::io::stdout()),
     };
 
-    let mut output = OutputWriter::new(writer);
+    // Determine output format - template takes precedence over --format
+    let output_format = if config.dry_run {
+        OutputFormat::PlainText
+    } else if config.template.is_some() {
+        // Use template mode (format doesn't matter)
+        config.output_format.clone()
+    } else {
+        config.output_format.clone()
+    };
+
+    // Get repository name for templates
+    let repo_name = config
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "repository".to_string());
+
+    let mut output = if let Some(ref template_name) = config.template {
+        OutputWriter::new_template(template_name, writer, repo_name).with_context(|| {
+            format!(
+                "Failed to load template '{}'. \
+                 Built-in templates: minimal, claude-review, openai-docs. \
+                 Or provide a custom template at ~/.config/flat/templates/{{name}}.hbs",
+                template_name
+            )
+        })?
+    } else {
+        match output_format {
+            OutputFormat::Xml => OutputWriter::new_xml(writer),
+            OutputFormat::Json => OutputWriter::new_json(writer),
+            OutputFormat::PlainText => OutputWriter::new_plaintext(writer),
+            OutputFormat::Template(_) => {
+                // This shouldn't happen but fallback to XML
+                OutputWriter::new_xml(writer)
+            }
+        }
+    };
 
     // First pass: collect all files
     let mut files_to_process = Vec::new();

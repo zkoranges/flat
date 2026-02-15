@@ -1,0 +1,27 @@
+# {{repo_name}} Documentation
+
+Generated: {{timestamp}}
+
+## Project Overview
+
+This document contains the flattened codebase for {{repo_name}}.
+
+**Statistics:**
+- Total files: {{statistics.total_files}}
+- Included files: {{statistics.included_files}}
+{{#if statistics.compressed_files}}
+- Compressed files: {{statistics.compressed_files}}
+{{/if}}
+
+## Source Files
+
+{{#each files}}
+## {{path}}
+
+Type: {{extension}}
+
+{{content}}
+
+---
+
+{{/each}}

@@ -32,10 +32,10 @@ flat --tokenizer claude --tokens 10k | pbcopy          # accurate Claude token c
 
 **Three features that compose together:**
 
-1. **`--compress`** — Structural compression using tree-sitter (12 languages)
-   - Keeps: imports, type definitions, function signatures, docstrings
-   - Strips: function bodies, loop contents, variable assignments
-   - Result: 30-60% token reduction while preserving API surface
+1. **`--compress`** — Structural compression using tree-sitter (16 languages)
+   - Keeps: imports, type definitions, function signatures, docstrings, database schemas
+   - Strips: function bodies, loop contents, variable assignments, query implementations
+   - Result: 30-80% token reduction while preserving API surface and structure
 
 2. **`--tokens N`** — Context window budgeting
    - Scores files by importance (README=100, entry points=90, tests=30, fixtures=5)
@@ -60,18 +60,53 @@ This gives you:
 
 ## Features
 
-| Feature | v0.4.0 | Details |
-|---------|:------:|---------|
-| **Tree-sitter compression** | ✓ | 12 languages, 30-60% reduction |
-| **Real tokenizers** | ✓ | Claude/GPT-4/GPT-3.5 (accurate) or heuristic (fast) |
-| **Token budgeting** | ✓ | Fit any codebase into any context window |
-| **Priority scoring** | ✓ | README=100, entry points=90, tests=30, fixtures=5 |
-| **Multiple formats** | ✓ | XML (structured) or Markdown (human-readable) |
-| **Multi-platform** | ✓ | macOS, Linux, Windows with native binaries |
-| **Safety by default** | ✓ | Secrets excluded, binaries skipped, `.gitignore` respected |
-| **12 languages** | ✓ | Rust, TS/JS, Python, Go, Java, C#, C, C++, Ruby, PHP, Solidity, Elixir |
-| **Fast** | ✓ | 25k files in <3 seconds |
-| **Test coverage** | ✓ | 200+ tests (unit + integration) |
+| Feature | v0.4.0 | v0.5.0 | Details |
+|---------|:------:|:------:|---------|
+| **Tree-sitter compression** | ✓ | ✓ | 16 languages, 30-80% reduction |
+| **Real tokenizers** | ✓ | ✓ | Claude/GPT-4/GPT-3.5 (accurate) or heuristic (fast) |
+| **Token budgeting** | ✓ | ✓ | Fit any codebase into any context window |
+| **Priority scoring** | ✓ | ✓ | README=100, entry points=90, tests=30, fixtures=5 |
+| **Output formats** | ✓ | ✓ | XML, Markdown, JSON (structured, human-readable) |
+| **Custom templates** | | ✓ | Handlebars templates for custom output formats |
+| **GitHub URLs** | | ✓ | Clone and analyze repos with `--github owner/repo` |
+| **MCP server mode** | | ✓ | JSON-RPC server for Claude Desktop integration |
+| **Multi-platform** | ✓ | ✓ | macOS, Linux, Windows with native binaries |
+| **Safety by default** | ✓ | ✓ | Secrets excluded, binaries skipped, `.gitignore` respected |
+| **16 languages** | ✓ | ✓ | Rust, TS/JS, Python, Go, Java, C#, C, C++, Ruby, PHP, Solidity, Elixir, SQL, Bash |
+| **Fast** | ✓ | ✓ | 25k files in <3 seconds |
+| **Test coverage** | ✓ | ✓ | 280+ tests (unit + integration) |
+
+## Output Templates
+
+Choose how your output is formatted with `--template`:
+
+| Template | Use case | Output style |
+|----------|----------|--------------|
+| **minimal** | Quick analysis | Code only, clean headers |
+| **claude-review** | Code reviews | Formatted for feedback, includes stats |
+| **openai-docs** | Documentation | Academic format with sections |
+
+**Examples:**
+
+```bash
+# Minimal — just code
+flat --template minimal | pbcopy
+
+# Code review format (includes metadata)
+flat --compress --template claude-review | pbcopy
+
+# Documentation format
+flat --template openai-docs -o docs.md
+```
+
+**Custom templates:**
+
+```bash
+# Use a custom Handlebars template
+flat --template ~/.config/flat/my-template.hbs
+```
+
+Template variables available: `{{files}}`, `{{statistics}}`, `{{repo_name}}`, `{{timestamp}}`
 
 ## Installation
 
@@ -128,7 +163,58 @@ flat --compress --full-match '*.rs'   # compress most files, keep *.rs in full
 ```bash
 flat --format xml                     # XML (default, structured)
 flat --format markdown | pbcopy       # Markdown (human-readable)
+flat --format json                    # JSON (programmatic use)
+flat --template claude-review | pbcopy # Custom template
 flat -o snapshot.xml                  # write to file instead of stdout
+```
+
+### GitHub URLs
+
+```bash
+flat --github owner/repo              # clone and analyze a repo
+flat --github https://github.com/owner/repo  # full URL
+flat --github owner/repo/tree/branch  # specific branch
+flat --github owner/repo --compress --tokens 50k  # with other flags
+flat --github owner/private-repo --github-token $GITHUB_TOKEN  # private repos
+```
+
+### MCP Server (Claude Desktop Integration)
+
+Run flat as a JSON-RPC server for Claude Desktop:
+
+```bash
+flat --serve                        # start MCP server (stdin/stdout JSON-RPC)
+```
+
+The MCP server exposes these tools to Claude:
+- **analyze_repo** - Flatten and analyze a repository
+- **list_files** - List files in a repository
+- **get_statistics** - Get repository statistics
+
+**Setup for Claude Desktop:**
+
+1. Save this to `~/.config/Claude/claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "flat": {
+      "command": "flat",
+      "args": ["--serve"]
+    }
+  }
+}
+```
+
+2. Restart Claude Desktop
+3. Use flat tools directly in Claude conversations
+
+**Protocol:** JSON-RPC 2.0 (stdio communication)
+
+### JSON output
+
+```bash
+flat --format json > codebase.json    # structured JSON for tools
+flat --format json | jq '.statistics' # query with jq
 ```
 
 ### Token budgeting
@@ -195,6 +281,8 @@ enums, preprocessor directives
 | **PHP** | `<?php`, `use`/`namespace`, class/interface/trait/enum, properties | `{ ... }` |
 | **Solidity** | `pragma`, imports, contract/interface/library, event/error/struct/enum declarations | `{ ... }` |
 | **Elixir** | `defmodule`, `use`/`import`/`alias`/`require`, module attributes, typespecs | `...\nend` |
+| **SQL** | CREATE TABLE/INDEX/VIEW/SCHEMA (full DDL), comments, simple queries | stored procedures, complex queries |
+| **Bash** | shebangs, exports/variables, short functions, comments | long function bodies, complex logic |
 
 Files in other languages pass through in full. If tree-sitter can't parse a file, the original is included with a stderr warning.
 
@@ -264,6 +352,18 @@ flat --stats                                     # preview before copying
 # Output formats
 flat --format markdown | pbcopy                  # markdown for AI chat
 flat --format xml -o snapshot.xml                # XML for tools
+flat --format json | jq '.statistics'            # JSON for programmatic use
+
+# Custom templates
+flat --template minimal | pbcopy                 # clean code-only output
+flat --template claude-review | pbcopy           # code review format
+flat --template openai-docs -o docs.md           # documentation format
+
+# GitHub repos (clone & analyze)
+flat --github owner/repo | pbcopy                # analyze any public repo
+flat --github owner/repo --compress --tokens 50k | pbcopy  # compressed
+flat --github owner/repo --template claude-review | pbcopy # formatted
+flat --github owner/repo/tree/main/src --stats   # specific branch/path
 
 # Compression
 flat --compress | pbcopy                         # structural overview
@@ -280,13 +380,17 @@ flat src/api --include ts --exclude spec          # just the API layer
 flat --match '*_test.go' | pbcopy                 # only test files
 flat src/ --compress --full-match 'handler.rs'    # debug one file in context
 
-# The full pipeline
+# The full pipeline (local repo)
 flat src/ --compress --tokens 100k \
-  --tokenizer claude --format markdown \
-  --full-match 'main.rs' | pbcopy                # everything combined
+  --tokenizer claude --template claude-review | pbcopy   # everything combined
+
+# The full pipeline (GitHub repo)
+flat --github openai/whisper --compress \
+  --tokens 50k --template openai-docs | pbcopy   # GitHub + compression + template
 
 # Save to file
 flat --compress -o snapshot.xml                   # compressed snapshot
+flat --format json -o codebase.json               # JSON snapshot
 ```
 
 ## Architecture
@@ -296,7 +400,7 @@ src/
 ├── main.rs        CLI entry point, argument parsing
 ├── lib.rs         Public API
 ├── walker.rs      Directory traversal, two-pass budget allocation
-├── compress.rs    Tree-sitter compression engine (12 languages)
+├── compress.rs    Tree-sitter compression engine (16 languages)
 ├── priority.rs    File importance scoring
 ├── tokens.rs      Token estimation and real tokenizer support (Claude/GPT-4)
 ├── filters.rs     Secret detection, binary file skipping
@@ -306,9 +410,9 @@ src/
 ```
 
 **Quality metrics:**
-- 200+ tests (unit + integration)
+- 280+ tests (unit + integration)
 - Zero clippy warnings
-- Full tree-sitter support for 12 languages
+- Full tree-sitter support for 16 languages
 - Validated against Flask, FastAPI, Express, Next.js
 
 ```bash
@@ -321,8 +425,8 @@ Contributions welcome! Areas of interest:
 
 - Additional language support (via tree-sitter)
 - Tokenizer optimizations
-- Template system (v0.5.0)
-- MCP server integration (v0.5.0)
+- Performance improvements (v0.6.0 — caching, watch mode)
+- IDE extensions (v1.0)
 
 See [LICENSE](LICENSE) for details.
 
@@ -334,11 +438,12 @@ See [LICENSE](LICENSE) for details.
 - Multi-platform binaries (macOS/Linux/Windows)
 - Published to crates.io
 
-### v0.5.0 Integration (planned)
+### v0.5.0 ✅ Integration
 - MCP server mode (`flat serve`)
 - GitHub URL support (`--github org/repo`)
-- Template system (custom output formats)
+- Template system (minimal, claude-review, openai-docs)
 - JSON output format
+- 280+ tests, all passing
 
 ### v0.6.0 Performance (planned)
 - Incremental processing with caching

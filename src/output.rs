@@ -1,9 +1,10 @@
 use crate::filters::SkipReason;
 use crate::tokens::is_prose_extension;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Statistics {
     pub total_files: usize,
     pub included_files: usize,
@@ -206,20 +207,46 @@ impl Statistics {
 }
 
 pub struct OutputWriter {
-    writer: Box<dyn Write>,
-    bytes_written: usize,
+    formatter: Box<dyn crate::formatters::Formatter>,
 }
 
 impl OutputWriter {
     pub fn new(writer: Box<dyn Write>) -> Self {
         Self {
-            writer,
-            bytes_written: 0,
+            formatter: Box::new(crate::formatters::xml::XmlFormatter::new(writer)),
         }
     }
 
+    pub fn new_xml(writer: Box<dyn Write>) -> Self {
+        Self::new(writer)
+    }
+
+    pub fn new_plaintext(writer: Box<dyn Write>) -> Self {
+        Self {
+            formatter: Box::new(crate::formatters::plaintext::PlainTextFormatter::new(writer)),
+        }
+    }
+
+    pub fn new_json(writer: Box<dyn Write>) -> Self {
+        Self {
+            formatter: Box::new(crate::formatters::json::JsonFormatter::new(writer)),
+        }
+    }
+
+    pub fn new_template(
+        template_path: &str,
+        writer: Box<dyn Write>,
+        repo_name: String,
+    ) -> std::io::Result<Self> {
+        let formatter =
+            crate::formatters::template::TemplateFormatter::new(template_path, writer, repo_name)?;
+        Ok(Self {
+            formatter: Box::new(formatter),
+        })
+    }
+
     pub fn bytes_written(&self) -> usize {
-        self.bytes_written
+        self.formatter.bytes_written()
     }
 
     pub fn write_file_content(&mut self, path: &str, content: &str) -> std::io::Result<()> {
@@ -232,54 +259,22 @@ impl OutputWriter {
         content: &str,
         mode: Option<&str>,
     ) -> std::io::Result<()> {
-        let escaped_path = escape_xml(path);
-        let opening_tag = match mode {
-            Some(m) => format!("<file path=\"{}\" mode=\"{}\">\n", escaped_path, m),
-            None => format!("<file path=\"{}\">\n", escaped_path),
-        };
-        self.writer.write_all(opening_tag.as_bytes())?;
-        self.bytes_written += opening_tag.len();
-
-        self.writer.write_all(content.as_bytes())?;
-        self.bytes_written += content.len();
-
-        if !content.ends_with('\n') {
-            self.writer.write_all(b"\n")?;
-            self.bytes_written += 1;
-        }
-
-        self.writer.write_all(b"</file>\n\n")?;
-        self.bytes_written += 9; // "</file>\n\n"
-
-        Ok(())
+        let extension = std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str());
+        self.formatter.write_file(path, content, mode, extension)
     }
 
     pub fn write_summary(&mut self, stats: &Statistics) -> std::io::Result<()> {
-        let summary = stats.format_summary();
-        self.writer.write_all(summary.as_bytes())?;
-        self.bytes_written += summary.len();
-
-        self.writer.write_all(b"\n")?;
-        self.bytes_written += 1;
-
-        Ok(())
+        self.formatter.finalize(stats)
     }
 
     pub fn write_file_path(&mut self, path: &str) -> std::io::Result<()> {
-        let line = format!("{}\n", path);
-        self.writer.write_all(line.as_bytes())?;
-        self.bytes_written += line.len();
-        Ok(())
+        // In dry-run mode, write a minimal file entry with just the path
+        // The formatter will handle the actual output format
+        self.formatter
+            .write_file(path, "", None, None)
     }
-}
-
-/// Escape XML special characters in strings
-fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 #[cfg(test)]
@@ -300,13 +295,5 @@ mod tests {
         assert_eq!(stats.total_skipped(), 3);
         assert_eq!(stats.included_by_extension.get("rs"), Some(&1));
         assert_eq!(stats.included_by_extension.get("toml"), Some(&1));
-    }
-
-    #[test]
-    fn test_escape_xml() {
-        assert_eq!(escape_xml("hello"), "hello");
-        assert_eq!(escape_xml("<tag>"), "&lt;tag&gt;");
-        assert_eq!(escape_xml("a & b"), "a &amp; b");
-        assert_eq!(escape_xml("\"quoted\""), "&quot;quoted&quot;");
     }
 }

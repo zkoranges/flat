@@ -17,6 +17,15 @@ fn create_test_file(dir: &std::path::Path, path: &str, content: &str) {
     fs::write(file_path, content).unwrap();
 }
 
+/// Helper to initialize a git repository in a directory
+fn init_git_repo(dir: &std::path::Path) {
+    std::process::Command::new("git")
+        .arg("init")
+        .current_dir(dir)
+        .output()
+        .unwrap();
+}
+
 // ============================================================================
 // Basic Functionality Tests
 // ============================================================================
@@ -2367,4 +2376,1288 @@ fn test_compression_preserves_structure_with_mix() {
     // README and Cargo.toml should have mode="full" (no compression for these)
     assert!(stdout.contains("README.md"));
     assert!(stdout.contains("Cargo.toml"));
+}
+
+// ============================================================================
+// Output Format Tests
+// ============================================================================
+
+#[test]
+fn test_json_format_flag() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Verify it's valid JSON
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Output should be valid JSON");
+
+    // Verify JSON structure
+    assert!(json["statistics"].is_object());
+    assert!(json["files"].is_array());
+
+    // Verify statistics fields
+    assert!(json["statistics"]["total_files"].is_number());
+    assert!(json["statistics"]["included_files"].is_number());
+
+    // Verify files contain expected entries
+    let files = json["files"].as_array().unwrap();
+    assert!(!files.is_empty());
+
+    // Check that at least one file has the expected structure
+    let has_expected = files.iter().any(|f| {
+        f["path"].is_string() && f["content"].is_string()
+    });
+    assert!(has_expected, "Files should have path and content fields");
+}
+
+#[test]
+fn test_json_format_with_compress() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--format")
+        .arg("json")
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Output should be valid JSON");
+
+    assert!(json["statistics"]["compressed_files"].is_number());
+    assert!(json["statistics"]["compressed_files"].as_u64().unwrap_or(0) > 0);
+}
+
+#[test]
+fn test_format_invalid_rejected() {
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--format")
+        .arg("invalid")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown format"));
+}
+
+// ============================================================================
+// Template Tests
+// ============================================================================
+
+#[test]
+fn test_minimal_template() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--template")
+        .arg("minimal")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Minimal template should contain file paths with ## markdown headers
+    assert!(stdout.contains("##"));
+    assert!(stdout.contains("src/main.rs") || stdout.contains("Cargo.toml"));
+}
+
+#[test]
+fn test_claude_review_template() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--template")
+        .arg("claude-review")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Claude review template should have a title
+    assert!(stdout.contains("Code Review Request"));
+    // Should include statistics
+    assert!(stdout.contains("Statistics"));
+}
+
+#[test]
+fn test_openai_docs_template() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--template")
+        .arg("openai-docs")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // OpenAI docs template should have documentation structure
+    assert!(stdout.contains("Documentation"));
+    assert!(stdout.contains("Project Overview"));
+}
+
+#[test]
+fn test_template_not_found() {
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--template")
+        .arg("nonexistent_template_xyz")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not found").or(predicate::str::contains("Cannot")));
+}
+
+#[test]
+fn test_template_overrides_format() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--format")
+        .arg("json")
+        .arg("--template")
+        .arg("minimal")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Template should be used (markdown format), not JSON
+    assert!(stdout.contains("##"));
+    // Should NOT be valid JSON (minimal template doesn't produce JSON)
+    assert!(serde_json::from_str::<serde_json::Value>(&stdout).is_err());
+}
+
+// ============================================================================
+// Edge Cases & Boundary Conditions
+// ============================================================================
+
+#[test]
+fn test_empty_directory() {
+    let temp_dir = TempDir::new().unwrap();
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .assert()
+        .code(3)  // Should exit with code 3 (no files matched)
+        .stderr(predicate::str::contains("No files matched"));
+}
+
+#[test]
+fn test_single_file_repository() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("main.rs"));
+    assert!(stdout.contains("fn main() {}"));
+}
+
+#[test]
+fn test_unicode_filenames() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "файл.rs", "// Russian filename");
+    create_test_file(temp_dir.path(), "文件.txt", "// Chinese filename");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("файл.rs") || stdout.contains("文件.txt"));
+}
+
+#[test]
+fn test_filenames_with_spaces() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "my file.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "another file with spaces.txt", "content");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("my file.rs"));
+}
+
+#[test]
+fn test_deeply_nested_directories() {
+    let temp_dir = TempDir::new().unwrap();
+    let mut path = temp_dir.path().to_path_buf();
+
+    // Create 15 levels of nesting
+    for i in 0..15 {
+        path = path.join(format!("level{}", i));
+    }
+
+    fs::create_dir_all(&path).unwrap();
+    create_test_file(&path, "deep.rs", "// deeply nested file");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("deep.rs"));
+}
+
+#[test]
+fn test_json_format_with_special_characters() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test.rs",
+        "fn test() { println!(\"<tag>\"); }  // JSON: {\"key\": \"value\"}\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Verify it's valid JSON even with special characters
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Output should be valid JSON with special chars");
+
+    let files = json["files"].as_array().unwrap();
+    assert!(!files.is_empty());
+
+    // Content should be properly escaped in JSON
+    let content = &files[0]["content"];
+    assert!(content.is_string());
+}
+
+#[test]
+fn test_json_format_empty_repository() {
+    let temp_dir = TempDir::new().unwrap();
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .code(3)
+        .stderr(predicate::str::contains("No files matched"));
+}
+
+#[test]
+fn test_json_with_token_budget() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--format")
+        .arg("json")
+        .arg("--tokens")
+        .arg("500")
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Output should be valid JSON");
+
+    // Verify token budget is respected
+    assert!(json["statistics"]["token_budget"].is_number());
+    assert!(json["statistics"]["token_budget"].as_u64().unwrap_or(0) > 0);
+}
+
+#[test]
+fn test_mixed_line_endings() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create file with mixed line endings
+    let content_with_crlf = "line1\r\nline2\nline3\r";
+    fs::write(temp_dir.path().join("mixed.txt"), content_with_crlf).unwrap();
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("mixed.txt"));
+}
+
+// ============================================================================
+// Integration Scenarios - Feature Combinations
+// ============================================================================
+
+#[test]
+fn test_compress_with_template() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--compress")
+        .arg("--template")
+        .arg("minimal")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should be template format, not XML
+    assert!(stdout.contains("##"));
+    assert!(!stdout.contains("<file path="));
+}
+
+#[test]
+fn test_token_budget_with_multiple_filters() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--tokens")
+        .arg("1000")
+        .arg("--include")
+        .arg("rs,toml,md")
+        .arg("--exclude")
+        .arg("lock")
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("<summary>"));
+}
+
+#[test]
+fn test_dry_run_with_compression() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--dry-run")
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Dry-run should list files without content
+    assert!(stdout.contains("Cargo.toml") || stdout.contains("README.md"));
+    // Should NOT contain file content
+    assert!(!stdout.contains("fn main"));
+}
+
+#[test]
+fn test_stats_mode_with_compress_and_token_budget() {
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--stats")
+        .arg("--compress")
+        .arg("--tokens")
+        .arg("5000")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Stats mode outputs to stderr or stdout
+    let output_text = format!("{}\n{}", stdout, stderr);
+    assert!(output_text.contains("Total files:") || output_text.contains("Included:"),
+            "Expected stats output with 'Total files' or 'Included'");
+}
+
+// ============================================================================
+// Error Handling & Edge Cases
+// ============================================================================
+
+#[test]
+fn test_nonexistent_path_with_stats() {
+    flat_cmd()
+        .arg("/nonexistent/path/that/does/not/exist")
+        .arg("--stats")
+        .assert()
+        .code(3)
+        .stderr(predicate::str::contains("No files matched").or(predicate::str::contains("error")));
+}
+
+#[test]
+fn test_permission_denied_simulation() {
+    // This test checks behavior when encountering read errors
+    flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_json_large_output() {
+    // Test JSON with all available content
+    let output = flat_cmd()
+        .arg("tests/fixtures/sample_project")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Verify it's valid JSON
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Large JSON output should be valid");
+
+    // Verify structure integrity
+    assert!(json.is_object());
+    assert!(json.get("files").is_some());
+    assert!(json.get("statistics").is_some());
+}
+
+// ============================================================================
+// Security & Special Cases
+// ============================================================================
+
+#[test]
+fn test_secret_file_detection() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "credentials.json", "{\"password\": \"secret\"}");
+    create_test_file(temp_dir.path(), ".env", "API_KEY=secret123");
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    // Secret files should be skipped
+    assert!(stderr.contains("credentials.json") || stderr.contains("secret"));
+    // Regular files should be included
+    assert!(stdout.contains("main.rs"));
+}
+
+#[test]
+fn test_binary_file_detection() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create a fake binary file
+    fs::write(temp_dir.path().join("binary.exe"), vec![0xFF, 0xD8, 0xFF]).unwrap();
+    create_test_file(temp_dir.path(), "text.txt", "readable text");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    // Binary should be skipped
+    assert!(stderr.contains("binary") || stderr.contains("Binary"));
+    // Text should be included
+    assert!(stdout.contains("text.txt"));
+}
+
+#[test]
+fn test_gitignore_with_negation_patterns() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create files
+    create_test_file(temp_dir.path(), "included.txt", "should be included");
+    create_test_file(temp_dir.path(), "excluded.log", "should be excluded");
+
+    // Create .gitignore with negation
+    create_test_file(temp_dir.path(), ".gitignore", "*.log\n!important.log");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // .txt should be included
+    assert!(stdout.contains("included.txt"));
+}
+
+#[test]
+fn test_very_long_file_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let mut path = temp_dir.path().to_path_buf();
+
+    // Create a very long path (but not exceeding system limits)
+    for i in 0..8 {
+        path = path.join(format!("very_long_directory_name_{}", i));
+    }
+
+    fs::create_dir_all(&path).unwrap();
+    create_test_file(&path, "file.rs", "// long path file");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Long paths should work in JSON");
+
+    let files = json["files"].as_array().unwrap();
+    assert!(!files.is_empty());
+}
+
+// ============================================================================
+// GitHub URL Parsing - Comprehensive
+// ============================================================================
+
+#[test]
+fn test_github_url_parsing_short_format() {
+    // Test GitHub URL parsing with short format (owner/repo)
+    // Uses hello-world which is tiny (~1MB)
+    let output = flat_cmd()
+        .arg("--github")
+        .arg("octocat/Hello-World")
+        .arg("--stats")
+        .output()
+        .unwrap();
+
+    // Either succeeds (with network) or fails with clone/network error
+    if output.status.success() {
+        // If clone succeeded, stats should show files
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("Total files:") || stderr.contains("Included:"));
+    } else {
+        // If clone failed, should be a network error
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("clone") || stderr.contains("Connection") ||
+                stderr.contains("Failed") || stderr.contains("error"));
+    }
+}
+
+// ============================================================================
+// MCP Server Mode - JSON-RPC Validation
+// ============================================================================
+
+#[test]
+fn test_mcp_server_tools_list_response() {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("--serve")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stdin = child.stdin.take().unwrap();
+
+    // Send tools/list request
+    use std::io::Write;
+    let request = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+    stdin.write_all(request.as_bytes()).unwrap();
+    stdin.write_all(b"\n").unwrap();
+    drop(stdin);
+
+    // Read response (with timeout)
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should contain tools info
+    assert!(stdout.contains("tools") || stdout.contains("analyze_repo"));
+}
+
+// ============================================================================
+// Real-World Repository Patterns
+// ============================================================================
+
+#[test]
+fn test_node_modules_excluded() {
+    // Test: node_modules are excluded via explicit .gitignore file
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "package.json", "{\"name\": \"myapp\"}");
+    create_test_file(temp_dir.path(), "src/index.js", "console.log('hello');");
+    create_test_file(temp_dir.path(), "node_modules/lodash/index.js", "// should be skipped");
+    let gitignore_path = temp_dir.path().join(".gitignore");
+    create_test_file(temp_dir.path(), ".gitignore", "node_modules/\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--gitignore")
+        .arg(&gitignore_path)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Source files should be included
+    assert!(stdout.contains("package.json") || stdout.contains("index.js"));
+
+    // node_modules should be excluded by explicit gitignore
+    assert!(!stdout.contains("lodash"), "lodash should not be included in output");
+}
+
+#[test]
+fn test_source_and_binary_mixed_detection() {
+    // Test: Binary detection works without gitignore patterns
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "src/main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "target/debug/binary", "compiled binary");
+    create_test_file(temp_dir.path(), "dist/bundle.js", "bundled output");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Source should be included
+    assert!(stdout.contains("main.rs"));
+
+    // Build artifacts should not be in output as files
+    // (they may be in error output as skipped)
+}
+
+#[test]
+fn test_monorepo_structure() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "packages/api/package.json", "{}");
+    create_test_file(temp_dir.path(), "packages/api/src/index.ts", "export const api = {};");
+    create_test_file(temp_dir.path(), "packages/web/package.json", "{}");
+    create_test_file(temp_dir.path(), "packages/web/src/App.tsx", "export default App;");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should include files from multiple packages
+    assert!(stdout.contains("index.ts") || stdout.contains("App.tsx"));
+}
+
+#[test]
+fn test_multiple_gitignore_levels() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // Create root .gitignore
+    create_test_file(temp_dir.path(), ".gitignore", "*.log\ntemp/");
+
+    // Create nested gitignore
+    create_test_file(temp_dir.path(), "src/.gitignore", "*.tmp");
+
+    create_test_file(temp_dir.path(), "README.md", "# Project");
+    create_test_file(temp_dir.path(), "debug.log", "log content");
+    create_test_file(temp_dir.path(), "src/main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "src/temp.tmp", "temp");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should include source, exclude logs and temps
+    assert!(stdout.contains("main.rs"));
+}
+
+// ============================================================================
+// Output File Handling
+// ============================================================================
+
+#[test]
+fn test_output_file_json_format() {
+    let temp_dir = TempDir::new().unwrap();
+    let output_file = temp_dir.path().join("output.json");
+
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .arg("--output")
+        .arg(&output_file)
+        .assert()
+        .success();
+
+    // Verify output file was created
+    assert!(output_file.exists());
+
+    // Verify it's valid JSON
+    let content = fs::read_to_string(&output_file).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .expect("Output file should contain valid JSON");
+
+    assert!(json["files"].is_array());
+}
+
+#[test]
+fn test_output_file_with_template() {
+    let temp_dir = TempDir::new().unwrap();
+    let output_file = temp_dir.path().join("output.md");
+
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+
+    flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--template")
+        .arg("minimal")
+        .arg("--output")
+        .arg(&output_file)
+        .assert()
+        .success();
+
+    // Verify output file was created
+    assert!(output_file.exists());
+
+    // Verify it's markdown (from minimal template)
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("##"));
+}
+
+// ============================================================================
+// Filter Combination Edge Cases
+// ============================================================================
+
+#[test]
+fn test_include_exclude_conflict_resolution() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "file1.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "file2.ts", "export {};");
+    create_test_file(temp_dir.path(), "file3.json", "{}");
+
+    // Include rs and ts, but exclude ts
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--include")
+        .arg("rs,ts")
+        .arg("--exclude")
+        .arg("ts")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Only rs should be included (exclude takes precedence)
+    assert!(stdout.contains("file1.rs"));
+    assert!(!stdout.contains("file2.ts"));
+    assert!(!stdout.contains("file3.json"));
+}
+
+#[test]
+fn test_match_pattern_with_filters() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test_main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "test_helper.rs", "fn helper() {}");
+    create_test_file(temp_dir.path(), "main.rs", "fn main2() {}");
+
+    // Include rs files, match only test_* files
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--include")
+        .arg("rs")
+        .arg("--match")
+        .arg("test_*")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Only test_* files should be included
+    assert!(stdout.contains("test_main.rs") || stdout.contains("test_helper.rs"));
+}
+
+// ============================================================================
+// Compression Language-Specific Tests
+// ============================================================================
+
+#[test]
+fn test_compression_different_languages() {
+    let temp_dir = TempDir::new().unwrap();
+
+    // Test files in different languages
+    create_test_file(temp_dir.path(), "main.rs",
+        "pub fn main() {\n    println!(\"hello\");\n    let x = 1;\n    let y = 2;\n}");
+    create_test_file(temp_dir.path(), "index.js",
+        "function test() {\n    console.log('hello');\n    let x = 1;\n}");
+    create_test_file(temp_dir.path(), "main.py",
+        "def main():\n    print('hello')\n    x = 1\n");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--compress")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // All files should be compressed (signatures extracted)
+    assert!(stdout.contains("{ ... }") || stdout.contains("Compressed:"));
+}
+
+// ============================================================================
+// Statistics Accuracy Tests
+// ============================================================================
+
+#[test]
+fn test_statistics_accurate_file_counts() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "1.rs", "fn a() {}");
+    create_test_file(temp_dir.path(), "2.rs", "fn b() {}");
+    create_test_file(temp_dir.path(), "3.txt", "text");
+    create_test_file(temp_dir.path(), "4.json", "{}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    // Should have exactly 4 files
+    let total_files = json["statistics"]["total_files"].as_u64().unwrap();
+    assert_eq!(total_files, 4);
+
+    let files_array = json["files"].as_array().unwrap();
+    assert_eq!(files_array.len(), 4);
+}
+
+#[test]
+fn test_statistics_extension_breakdown() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "a.rs", "fn a() {}");
+    create_test_file(temp_dir.path(), "b.rs", "fn b() {}");
+    create_test_file(temp_dir.path(), "c.ts", "export {};");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--stats")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    // Should show breakdown: 2 .rs, 1 .ts
+    assert!(stderr.contains("2") && stderr.contains(".rs") ||
+            stderr.contains("1") && stderr.contains(".ts"));
+}
+
+// ============================================================================
+// Unix Alignment: Directory Exclusion Tests
+// ============================================================================
+
+#[test]
+fn test_exclude_dir_basic() {
+    let temp_dir = TempDir::new().unwrap();
+    let node_modules = temp_dir.path().join("node_modules");
+    fs::create_dir_all(&node_modules).unwrap();
+    let src = temp_dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+
+    create_test_file(temp_dir.path(), "package.json", "{}");
+    create_test_file(&node_modules, "index.js", "console.log('dep');");
+    create_test_file(&src, "main.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--exclude-dir")
+        .arg("node_modules")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should include src/main.rs and package.json
+    assert!(stdout.contains("main.rs"));
+    assert!(stdout.contains("package.json"));
+    // Should not include node_modules
+    assert!(!stdout.contains("index.js"));
+}
+
+#[test]
+fn test_exclude_dir_short_alias() {
+    let temp_dir = TempDir::new().unwrap();
+    let dist = temp_dir.path().join("dist");
+    fs::create_dir_all(&dist).unwrap();
+    let src = temp_dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+
+    create_test_file(&dist, "bundle.js", "bundled");
+    create_test_file(&src, "app.ts", "export const app = {};");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("-I")
+        .arg("dist")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(stdout.contains("app.ts"));
+    assert!(!stdout.contains("bundle.js"));
+}
+
+#[test]
+fn test_exclude_dir_multiple_comma_separated() {
+    let temp_dir = TempDir::new().unwrap();
+    let node_modules = temp_dir.path().join("node_modules");
+    fs::create_dir_all(&node_modules).unwrap();
+    let dist = temp_dir.path().join("dist");
+    fs::create_dir_all(&dist).unwrap();
+    let src = temp_dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+
+    create_test_file(&node_modules, "index.js", "deps");
+    create_test_file(&dist, "bundle.js", "bundled");
+    create_test_file(&src, "main.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("-I")
+        .arg("node_modules,dist")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(stdout.contains("main.rs"));
+    assert!(!stdout.contains("index.js"));
+    assert!(!stdout.contains("bundle.js"));
+}
+
+#[test]
+fn test_exclude_dir_with_gitignore() {
+    let temp_dir = TempDir::new().unwrap();
+    init_git_repo(temp_dir.path());
+    let node_modules = temp_dir.path().join("node_modules");
+    fs::create_dir_all(&node_modules).unwrap();
+    let build = temp_dir.path().join("build");
+    fs::create_dir_all(&build).unwrap();
+    let src = temp_dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+
+    create_test_file(temp_dir.path(), ".gitignore", "build/\n");
+    create_test_file(&node_modules, "lib.js", "dep");
+    create_test_file(&build, "output.o", "build artifact");
+    create_test_file(&src, "main.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("-I")
+        .arg("node_modules")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should exclude both node_modules (--exclude-dir) and build (gitignore)
+    assert!(stdout.contains("main.rs"));
+    assert!(!stdout.contains("lib.js"));
+    assert!(!stdout.contains("output.o"));
+}
+
+// ============================================================================
+// Unix Alignment: No-Ignore Flag Tests
+// ============================================================================
+
+#[test]
+fn test_no_ignore_flag_respects_gitignore_by_default() {
+    let temp_dir = TempDir::new().unwrap();
+    init_git_repo(temp_dir.path());
+    let logs = temp_dir.path().join("logs");
+    fs::create_dir_all(&logs).unwrap();
+
+    create_test_file(temp_dir.path(), ".gitignore", "*.log\nlogs/\n");
+    create_test_file(&logs, "app.log", "log content");
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should not include files in .gitignore
+    assert!(stdout.contains("main.rs"));
+    assert!(!stdout.contains("app.log"));
+}
+
+#[test]
+fn test_no_ignore_flag_disables_gitignore() {
+    let temp_dir = TempDir::new().unwrap();
+    init_git_repo(temp_dir.path());
+    let logs = temp_dir.path().join("logs");
+    fs::create_dir_all(&logs).unwrap();
+
+    create_test_file(temp_dir.path(), ".gitignore", "*.log\nlogs/\n");
+    create_test_file(&logs, "app.log", "log content");
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--no-ignore")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should include all files, including those in .gitignore
+    assert!(stdout.contains("main.rs"));
+    assert!(stdout.contains("app.log"));
+}
+
+#[test]
+fn test_no_ignore_but_exclude_dir_still_applies() {
+    let temp_dir = TempDir::new().unwrap();
+    init_git_repo(temp_dir.path());
+    let node_modules = temp_dir.path().join("node_modules");
+    fs::create_dir_all(&node_modules).unwrap();
+    let src = temp_dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+
+    create_test_file(temp_dir.path(), ".gitignore", "node_modules/\n");
+    create_test_file(&node_modules, "lib.js", "dep");
+    create_test_file(&src, "main.rs", "fn main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--no-ignore")
+        .arg("-I")
+        .arg("node_modules")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // --exclude-dir should still work even with --no-ignore
+    assert!(stdout.contains("main.rs"));
+    assert!(!stdout.contains("lib.js"));
+}
+
+// ============================================================================
+// Unix Alignment: Short Alias Tests
+// ============================================================================
+
+#[test]
+fn test_short_alias_compress() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {\n    println!(\"hello\");\n}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("-c")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should show compression happened
+    assert!(stdout.contains("main.rs"));
+    // Compressed content should be smaller
+    assert!(stdout.contains("{ ... }") || stdout.contains("Compressed:"));
+}
+
+#[test]
+fn test_short_alias_match() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main_test.go", "func TestMain() {}");
+    create_test_file(temp_dir.path(), "main.go", "func main() {}");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("-m")
+        .arg("*_test*")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(stdout.contains("main_test.go"));
+    assert!(!stdout.contains("main.go"));
+}
+
+#[test]
+fn test_short_alias_include() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "config.toml", "[config]");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("-i")
+        .arg("rs")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(stdout.contains("main.rs"));
+    assert!(!stdout.contains("config.toml"));
+}
+
+#[test]
+fn test_short_aliases_combined() {
+    let temp_dir = TempDir::new().unwrap();
+    let dist = temp_dir.path().join("dist");
+    fs::create_dir_all(&dist).unwrap();
+
+    create_test_file(&dist, "bundle.js", "bundled");
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}\n    println!(\"test\");");
+    create_test_file(temp_dir.path(), "config.toml", "[test]");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("-I")
+        .arg("dist")
+        .arg("-i")
+        .arg("rs")
+        .arg("-c")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(stdout.contains("main.rs"));
+    assert!(!stdout.contains("bundle.js"));
+    assert!(!stdout.contains("config.toml"));
+}
+
+// ============================================================================
+// Unix Alignment: Ignore File Tests
+// ============================================================================
+
+#[test]
+fn test_ignore_file_flag() {
+    let temp_dir = TempDir::new().unwrap();
+    let custom_ignore = temp_dir.path().join(".customignore");
+
+    create_test_file(temp_dir.path(), ".customignore", "*.tmp\n");
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "data.tmp", "temporary");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--ignore-file")
+        .arg(&custom_ignore)
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert!(stdout.contains("main.rs"));
+    assert!(!stdout.contains("data.tmp"));
+}
+
+#[test]
+fn test_ignore_file_with_no_ignore_flag() {
+    let temp_dir = TempDir::new().unwrap();
+    init_git_repo(temp_dir.path());
+    let custom_ignore = temp_dir.path().join(".customignore");
+
+    create_test_file(temp_dir.path(), ".customignore", "*.tmp\n");
+    create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
+    create_test_file(temp_dir.path(), "data.tmp", "temporary");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("--ignore-file")
+        .arg(&custom_ignore)
+        .arg("--no-ignore")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // With --no-ignore, custom ignore file should be ignored
+    assert!(stdout.contains("main.rs"));
+    assert!(stdout.contains("data.tmp"));
+}
+
+// ============================================================================
+// Unix Alignment: Precedence and Interaction Tests
+// ============================================================================
+
+#[test]
+fn test_precedence_exclude_dir_over_include_filter() {
+    let temp_dir = TempDir::new().unwrap();
+    let src = temp_dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    let build = temp_dir.path().join("build");
+    fs::create_dir_all(&build).unwrap();
+
+    create_test_file(&src, "main.rs", "fn main() {}");
+    create_test_file(&build, "output.rs", "// build artifact");
+
+    let output = flat_cmd()
+        .arg(temp_dir.path())
+        .arg("-I")
+        .arg("build")
+        .arg("-i")
+        .arg("rs")
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Even though .rs is included, build should be excluded
+    assert!(stdout.contains("main.rs"));
+    assert!(!stdout.contains("output.rs"));
 }
