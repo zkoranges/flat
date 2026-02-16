@@ -136,11 +136,12 @@ struct FlattenArgs {
     #[arg(long, value_name = "TOKEN")]
     github_token: Option<String>,
 
-    /// Enable parallel processing (v0.6.0; parallel is enabled by default, use --no-parallel to disable)
+    /// Enable parallel processing (v0.6.0; enabled by default, included for backward compatibility)
+    /// Note: This flag has no effect since parallel processing is always enabled unless --no-parallel is used
     #[arg(long)]
     parallel: bool,
 
-    /// Disable parallel processing (v0.6.0; parallel is enabled by default)
+    /// Disable parallel processing (v0.6.0; parallel is enabled by default for performance)
     #[arg(long)]
     no_parallel: bool,
 

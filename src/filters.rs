@@ -6,6 +6,7 @@ use std::path::Path;
 const SECRET_PATTERNS: &[&str] = &[
     ".env",
     "credentials.json",
+    "secrets.json",
     "serviceaccount.json",
     "id_rsa",
     "id_dsa",
@@ -14,7 +15,15 @@ const SECRET_PATTERNS: &[&str] = &[
 ];
 
 /// Secret substring patterns (case-insensitive)
-const SECRET_SUBSTRINGS: &[&str] = &["secret", "password", "credential"];
+// Only match substrings in specific context (not in code like password_validator.rs)
+// These patterns should only match if the substring is:
+// - At the start of filename, or
+// - Part of specific patterns like "config.secret.json"
+const SECRET_PATTERNS_STRICT: &[&str] = &[
+    "secret_",      // secret_key.pem
+    "_secret",      // api_secret.txt
+    "-secret",      // my-secret-file.txt
+];
 
 /// File extensions that indicate binary/non-text files
 const BINARY_EXTENSIONS: &[&str] = &[
@@ -77,8 +86,9 @@ pub fn is_secret_file(path: &Path) -> bool {
         }
     }
 
-    // Check substrings
-    SECRET_SUBSTRINGS.iter().any(|s| file_name.contains(s))
+    // Check strict patterns (more specific than generic substring matching)
+    // This avoids false positives like password_validator.rs
+    SECRET_PATTERNS_STRICT.iter().any(|p| file_name.contains(p))
 }
 
 /// Check if a file extension indicates a binary file
@@ -122,6 +132,7 @@ mod tests {
 
     #[test]
     fn test_secret_file_detection() {
+        // Exact patterns that should be flagged
         assert!(is_secret_file(Path::new(".env")));
         assert!(is_secret_file(Path::new(".env.local")));
         assert!(is_secret_file(Path::new(".env.production")));
@@ -129,9 +140,16 @@ mod tests {
         assert!(is_secret_file(Path::new("id_rsa")));
         assert!(is_secret_file(Path::new("my.key")));
         assert!(is_secret_file(Path::new("cert.pem")));
-        assert!(is_secret_file(Path::new("my-secret-file.txt")));
-        assert!(is_secret_file(Path::new("passwords.txt")));
 
+        // Strict patterns (substring with delimiters)
+        assert!(is_secret_file(Path::new("my-secret-file.txt")));
+        assert!(is_secret_file(Path::new("api_secret.json")));
+        assert!(is_secret_file(Path::new("secret_key.pem")));
+
+        // Legitimate code files should NOT be flagged (this was the bug)
+        assert!(!is_secret_file(Path::new("password_validator.rs")));
+        assert!(!is_secret_file(Path::new("authenticate_password.ts")));
+        assert!(!is_secret_file(Path::new("credentials.ts")));  // Used in legitimate code
         assert!(!is_secret_file(Path::new("main.rs")));
         assert!(!is_secret_file(Path::new("config.toml")));
     }

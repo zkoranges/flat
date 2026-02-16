@@ -99,9 +99,10 @@ impl Config {
 
     /// Check if a file name matches any of the configured glob patterns.
     /// Returns true if no patterns are set or if the name matches at least one pattern.
-    pub fn should_include_by_match(&self, file_name: &str) -> bool {
+    pub fn should_include_by_match(&self, file_path: &str) -> bool {
         match &self.match_patterns {
-            Some(patterns) => patterns.iter().any(|m| m.is_match(file_name)),
+            // Match against the full relative path (e.g., "src/utils/lib.rs" for pattern "src/**/*.rs")
+            Some(patterns) => patterns.iter().any(|m| m.is_match(file_path)),
             None => true,
         }
     }
@@ -190,5 +191,26 @@ mod tests {
         assert!(config.should_include_by_match("user_test.go"));
         assert!(config.should_include_by_match("button.spec.js"));
         assert!(!config.should_include_by_match("main.go"));
+    }
+
+    #[test]
+    fn test_match_path_based_patterns() {
+        // CRITICAL FIX: Verify path-based patterns work (not just filenames)
+        let config = Config {
+            match_patterns: Some(vec![Glob::new("src/**/*.rs").unwrap().compile_matcher()]),
+            ..Default::default()
+        };
+
+        // Should match files in src directory
+        assert!(config.should_include_by_match("src/main.rs"));
+        assert!(config.should_include_by_match("src/lib.rs"));
+        assert!(config.should_include_by_match("src/utils/helper.rs"));
+
+        // Should NOT match files outside src
+        assert!(!config.should_include_by_match("tests/test.rs"));
+        assert!(!config.should_include_by_match("main.rs"));
+
+        // Should NOT match non-Rust files in src
+        assert!(!config.should_include_by_match("src/config.toml"));
     }
 }

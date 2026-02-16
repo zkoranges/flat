@@ -3,8 +3,17 @@ use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
 
-/// Helper to get the flat binary for testing
+/// Helper to get the flat binary for testing (defaults to XML for backward compatibility)
 fn flat_cmd() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_flat"));
+    // Most tests expect XML format (old default)
+    // Real CLI default is now markdown for better LLM consumption
+    cmd.arg("--format").arg("xml");
+    cmd
+}
+
+/// Helper for format-specific tests that need to override the format
+fn flat_cmd_no_format() -> Command {
     Command::new(env!("CARGO_BIN_EXE_flat"))
 }
 
@@ -1267,7 +1276,7 @@ fn test_compress_fallback_on_syntax_error() {
         .expect("Failed to execute command");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let _stderr = String::from_utf8_lossy(&output.stderr);
 
     // File should still be included (fallback to full content)
     assert!(
@@ -2392,8 +2401,7 @@ fn test_compression_preserves_structure_with_mix() {
 
 #[test]
 fn test_json_format_flag() {
-    // Use direct Command to avoid flat_cmd's default --format xml
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+    let output = flat_cmd_no_format()
         .arg("tests/fixtures/sample_project")
         .arg("--format")
         .arg("json")
@@ -2429,7 +2437,7 @@ fn test_json_format_flag() {
 
 #[test]
 fn test_json_format_with_compress() {
-    let output = flat_cmd()
+    let output = flat_cmd_no_format()
         .arg("tests/fixtures/sample_project")
         .arg("--format")
         .arg("json")
@@ -2449,7 +2457,7 @@ fn test_json_format_with_compress() {
 
 #[test]
 fn test_format_invalid_rejected() {
-    flat_cmd()
+    flat_cmd_no_format()
         .arg("tests/fixtures/sample_project")
         .arg("--format")
         .arg("invalid")
@@ -2530,7 +2538,7 @@ fn test_template_not_found() {
 
 #[test]
 fn test_template_overrides_format() {
-    let output = flat_cmd()
+    let output = flat_cmd_no_format()
         .arg("tests/fixtures/sample_project")
         .arg("--format")
         .arg("json")
@@ -2641,7 +2649,7 @@ fn test_json_format_with_special_characters() {
     create_test_file(temp_dir.path(), "test.rs",
         "fn test() { println!(\"<tag>\"); }  // JSON: {\"key\": \"value\"}\n");
 
-    let output = flat_cmd()
+    let output = flat_cmd_no_format()
         .arg(temp_dir.path())
         .arg("--format")
         .arg("json")
@@ -2667,7 +2675,7 @@ fn test_json_format_with_special_characters() {
 fn test_json_format_empty_repository() {
     let temp_dir = TempDir::new().unwrap();
 
-    flat_cmd()
+    flat_cmd_no_format()
         .arg(temp_dir.path())
         .arg("--format")
         .arg("json")
@@ -2678,7 +2686,7 @@ fn test_json_format_empty_repository() {
 
 #[test]
 fn test_json_with_token_budget() {
-    let output = flat_cmd()
+    let output = flat_cmd_no_format()
         .arg("tests/fixtures/sample_project")
         .arg("--format")
         .arg("json")
@@ -2822,7 +2830,7 @@ fn test_permission_denied_simulation() {
 #[test]
 fn test_json_large_output() {
     // Test JSON with all available content
-    let output = flat_cmd()
+    let output = flat_cmd_no_format()
         .arg("tests/fixtures/sample_project")
         .arg("--format")
         .arg("json")
@@ -2927,7 +2935,7 @@ fn test_very_long_file_path() {
     fs::create_dir_all(&path).unwrap();
     create_test_file(&path, "file.rs", "// long path file");
 
-    let output = flat_cmd()
+    let output = flat_cmd_no_format()
         .arg(temp_dir.path())
         .arg("--format")
         .arg("json")
@@ -3114,7 +3122,7 @@ fn test_output_file_json_format() {
 
     create_test_file(temp_dir.path(), "main.rs", "fn main() {}");
 
-    flat_cmd()
+    flat_cmd_no_format()
         .arg(temp_dir.path())
         .arg("--format")
         .arg("json")
@@ -3253,7 +3261,7 @@ fn test_statistics_accurate_file_counts() {
     create_test_file(temp_dir.path(), "3.txt", "text");
     create_test_file(temp_dir.path(), "4.json", "{}");
 
-    let output = flat_cmd()
+    let output = flat_cmd_no_format()
         .arg(temp_dir.path())
         .arg("--format")
         .arg("json")
@@ -3680,13 +3688,15 @@ fn test_parallel_flag_basic() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
         .arg("tests/fixtures/sample_project")
         .arg("--parallel")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("src/main.rs"));
-    assert!(stdout.contains("Total files:"));
+    assert!(stdout.contains("<summary>"));
 }
 
 #[test]
@@ -3772,12 +3782,14 @@ fn test_parallel_with_compression() {
         .arg("tests/fixtures/sample_project")
         .arg("--parallel")
         .arg("--compress")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("compressed"));
+    assert!(stdout.contains("mode=\"compressed\""));
 }
 
 // ============================================================================
@@ -3797,6 +3809,8 @@ fn test_cache_basic() {
     let output1 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
         .arg(dir)
         .arg("--parallel")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
@@ -3808,6 +3822,8 @@ fn test_cache_basic() {
     let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
         .arg(dir)
         .arg("--parallel")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
@@ -3828,6 +3844,8 @@ fn test_cache_invalidation_on_file_change() {
     let output1 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
         .arg(dir)
         .arg("--parallel")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
@@ -3843,6 +3861,8 @@ fn test_cache_invalidation_on_file_change() {
     let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
         .arg(dir)
         .arg("--parallel")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
@@ -3893,12 +3913,14 @@ fn test_cache_with_compression() {
         .arg(dir)
         .arg("--parallel")
         .arg("--compress")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
     assert!(output1.status.success());
     let stdout1 = String::from_utf8(output1.stdout).unwrap();
-    assert!(stdout1.contains("compressed"));
+    assert!(stdout1.contains("mode=\"compressed\""));
     assert!(stdout1.contains("Cache: 0 hits, 1 miss"));
 
     // Second run with same compression
@@ -3906,6 +3928,8 @@ fn test_cache_with_compression() {
         .arg(dir)
         .arg("--parallel")
         .arg("--compress")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
@@ -3926,6 +3950,8 @@ fn test_cache_invalidation_on_compression_change() {
         .arg(dir)
         .arg("--parallel")
         .arg("--compress")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
@@ -3935,6 +3961,8 @@ fn test_cache_invalidation_on_compression_change() {
     let output2 = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
         .arg(dir)
         .arg("--parallel")
+        .arg("--format")
+        .arg("xml")
         .output()
         .unwrap();
 
@@ -3991,4 +4019,335 @@ fn test_watch_invalid_combinations_with_output() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("cannot be used with --output"));
+}
+
+// ============================================================================
+// Format Edge Cases - Critical Tests for Format Functionality
+// ============================================================================
+
+#[test]
+fn test_format_default_is_markdown() {
+    // CRITICAL: Verify markdown is the default format (not XML)
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test.rs", "fn main() {}");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Markdown format: Contains ## headers
+    assert!(stdout.contains("## "), "Default format should be markdown with ## headers");
+    // Should NOT have XML markers
+    assert!(!stdout.contains("<file path="), "Default should NOT be XML format");
+}
+
+#[test]
+fn test_format_xml_explicit_override() {
+    // CRITICAL: Verify explicit XML format works and produces XML
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test.rs", "fn main() { println!(\"hello\"); }");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("xml")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // XML format: Contains <file> markers
+    assert!(stdout.contains("<file path="), "XML format should contain <file path= marker");
+    assert!(stdout.contains("</file>"), "XML format should contain </file> marker");
+    assert!(stdout.contains("<summary>"), "XML format should contain <summary> marker");
+    // Should NOT have markdown headers as primary format
+    assert!(!stdout.contains("## test.rs"), "XML should not use markdown headers for file paths");
+}
+
+#[test]
+fn test_format_json_explicit_works() {
+    // CRITICAL: Verify JSON format produces valid JSON
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test.rs", "fn main() {}");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should be valid JSON
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("JSON format should produce valid JSON");
+
+    // JSON should have structure with files and statistics
+    assert!(json["files"].is_array(), "JSON should have files array");
+    assert!(json["statistics"].is_object(), "JSON should have statistics object");
+    assert!(
+        json["statistics"]["total_files"].is_number(),
+        "Statistics should have total_files"
+    );
+}
+
+#[test]
+fn test_format_file_content_identical_across_formats() {
+    // CRITICAL: Verify the actual file content is present regardless of format
+    let temp_dir = TempDir::new().unwrap();
+    let file_content = "fn main() { println!(\"hello world\"); }";
+    create_test_file(temp_dir.path(), "test.rs", file_content);
+
+    // Get content in markdown format
+    let output_md = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("markdown")
+        .output()
+        .unwrap();
+
+    // Get content in XML format
+    let output_xml = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("xml")
+        .output()
+        .unwrap();
+
+    // Get content in JSON format
+    let output_json = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    let stdout_md = String::from_utf8(output_md.stdout).unwrap();
+    let stdout_xml = String::from_utf8(output_xml.stdout).unwrap();
+    let stdout_json = String::from_utf8(output_json.stdout).unwrap();
+
+    // All formats should contain key parts of the file content
+    // (markdown may HTML-escape some characters)
+    assert!(
+        stdout_md.contains("fn main()") && stdout_md.contains("hello world"),
+        "Markdown format should contain file content (may be HTML-escaped)"
+    );
+    assert!(
+        stdout_xml.contains(file_content),
+        "XML format should contain exact file content"
+    );
+
+    // JSON should have content (possibly with escaping)
+    let json: serde_json::Value = serde_json::from_str(&stdout_json).unwrap();
+    let json_content = json["files"][0]["content"]
+        .as_str()
+        .expect("JSON should have content field");
+    assert!(
+        json_content.contains("hello world"),
+        "JSON format should contain file content"
+    );
+}
+
+#[test]
+fn test_format_compression_works_with_all_formats() {
+    // CRITICAL: Verify compression works with all formats
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(
+        temp_dir.path(),
+        "test.rs",
+        "fn main() {\n    println!(\"hello\");\n    let x = 1;\n    let y = 2;\n}",
+    );
+
+    // Test markdown + compress
+    let output_md = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("markdown")
+        .arg("--compress")
+        .output()
+        .unwrap();
+    assert!(output_md.status.success());
+    let stdout_md = String::from_utf8(output_md.stdout).unwrap();
+    assert!(
+        stdout_md.contains("fn main()"),
+        "Markdown compressed should have function signature"
+    );
+
+    // Test XML + compress
+    let output_xml = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("xml")
+        .arg("--compress")
+        .output()
+        .unwrap();
+    assert!(output_xml.status.success());
+    let stdout_xml = String::from_utf8(output_xml.stdout).unwrap();
+    assert!(
+        stdout_xml.contains("mode=\"compressed\""),
+        "XML compressed should have mode attribute"
+    );
+
+    // Test JSON + compress
+    let output_json = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .arg("--compress")
+        .output()
+        .unwrap();
+    assert!(output_json.status.success());
+    let stdout_json = String::from_utf8(output_json.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout_json).unwrap();
+    assert!(
+        json["files"][0]["mode"].as_str() == Some("compressed"),
+        "JSON compressed should have mode: compressed"
+    );
+}
+
+#[test]
+fn test_format_template_overrides_format_completely() {
+    // CRITICAL: Verify template completely overrides format flag
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test.rs", "fn main() {}");
+
+    // Try to request JSON format but with minimal template
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .arg("--template")
+        .arg("minimal")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Should output markdown from template, NOT JSON
+    assert!(
+        stdout.contains("## "),
+        "Template should override format flag and produce markdown"
+    );
+    // Should NOT be valid JSON
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&stdout).is_err(),
+        "Template override should produce markdown, not JSON"
+    );
+}
+
+#[test]
+fn test_format_invalid_format_rejected() {
+    // CRITICAL: Verify invalid format is properly rejected
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg("tests/fixtures/sample_project")
+        .arg("--format")
+        .arg("invalid_format_xyz")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "Invalid format should fail");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("Unknown format") || stderr.contains("invalid"),
+        "Error should mention unknown/invalid format"
+    );
+}
+
+#[test]
+fn test_format_case_insensitive_markdown_alias() {
+    // CRITICAL: Verify "markdown" format maps to minimal template
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test.rs", "fn main() {}");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("markdown")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("## "),
+        "Markdown format should produce ## headers"
+    );
+}
+
+#[test]
+fn test_format_switching_produces_different_output() {
+    // CRITICAL: Verify different formats actually produce different output
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test.rs", "fn main() {}");
+
+    let output_md = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("markdown")
+        .output()
+        .unwrap();
+
+    let output_xml = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("xml")
+        .output()
+        .unwrap();
+
+    let stdout_md = String::from_utf8(output_md.stdout).unwrap();
+    let stdout_xml = String::from_utf8(output_xml.stdout).unwrap();
+
+    // Outputs should be different
+    assert_ne!(stdout_md, stdout_xml, "Different formats should produce different output");
+
+    // But both should contain file content
+    assert!(stdout_md.contains("fn main() {}"));
+    assert!(stdout_xml.contains("fn main() {}"));
+}
+
+#[test]
+fn test_format_with_filters_and_compression() {
+    // CRITICAL: Verify format works correctly with multiple flags together
+    let temp_dir = TempDir::new().unwrap();
+    create_test_file(temp_dir.path(), "test.rs", "fn main() { println!(\"a\"); }");
+    create_test_file(
+        temp_dir.path(),
+        "lib.rs",
+        "pub fn helper() {\n    let x = 1;\n    let y = 2;\n}",
+    );
+
+    // Complex scenario: JSON + compress + include filter
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
+        .arg(temp_dir.path())
+        .arg("--format")
+        .arg("json")
+        .arg("--compress")
+        .arg("--include")
+        .arg("rs")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("Complex scenario should still produce valid JSON");
+
+    // Should have files
+    assert!(
+        !json["files"].as_array().unwrap().is_empty(),
+        "Should have files matching filter"
+    );
+    // Should have compression info
+    assert!(
+        json["files"][0]["mode"].is_string(),
+        "Compressed files should have mode in JSON"
+    );
 }

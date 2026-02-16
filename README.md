@@ -43,8 +43,11 @@ flat --tokenizer claude --tokens 10k | pbcopy          # accurate Claude token c
    - Fits any codebase into any context window
 
 3. **`--format`** — Choose your output
-   - `xml` (default) — structured XML, for programmatic parsing
-   - `markdown` — human-readable, for pasting into Claude/ChatGPT
+   - `markdown` (default) — human-readable, optimized for AI consumption (Claude, ChatGPT, etc.)
+   - `xml` — structured XML, for programmatic parsing and tool integration
+   - `json` — machine-readable format for scripts and automation
+
+**Why markdown is the default:** Since flat is designed for AI/LLM consumption, markdown is the natural default. It's readable in chat interfaces, preserves code formatting without tags, and works perfectly with tools like Claude Code. XML adds overhead for human consumption, so it's available when you need structured data.
 
 **The power move:**
 
@@ -74,7 +77,7 @@ This gives you:
 | **Safety by default** | ✓ | ✓ | ✓ | Secrets excluded, binaries skipped, `.gitignore` respected |
 | **16 languages** | ✓ | ✓ | ✓ | Rust, TS/JS, Python, Go, Java, C#, C, C++, Ruby, PHP, Solidity, Elixir, SQL, Bash |
 | **Fast** | ✓ | ✓ | ✓ | 25k files in <3 seconds |
-| **Parallel processing** | | | ✓ | 3-6x speedup on multi-core (--parallel) |
+| **Parallel processing** | | | ✓ | 3-6x speedup (default in v0.6.0, --no-parallel to disable) |
 | **Incremental caching** | | | ✓ | Instant re-runs for unchanged files (--no-cache to disable) |
 | **Watch mode** | | | ✓ | Auto-regenerate on file changes (--watch) |
 | **Test coverage** | ✓ | ✓ | ✓ | 350+ tests (unit + integration) |
@@ -115,15 +118,17 @@ Template variables available: `{{files}}`, `{{statistics}}`, `{{repo_name}}`, `{
 
 Three new features for faster iteration:
 
-### Parallel Processing (enabled by default, `--no-parallel` to disable)
+### Parallel Processing (enabled by default)
 
-**Enabled by default in v0.6.0** for 3-6x speedup on multi-core systems.
+**Parallel processing is enabled by default in v0.6.0** for 3-6x speedup on multi-core systems.
 
 ```bash
-flat                                      # Uses parallel by default (3-6x faster)
+flat                                      # parallel enabled (default)
 flat --compress                           # Works with all features
 flat --no-parallel                        # Disable parallel (fallback to sequential)
 ```
+
+The `--parallel` flag is kept for backward compatibility but has no effect (parallel is always on by default). Use `--no-parallel` to disable and fall back to sequential processing.
 
 Output is byte-for-byte identical to sequential mode (deterministic). If parallel processing fails for any reason, automatically falls back to sequential processing.
 
@@ -220,8 +225,8 @@ flat --compress --full-match '*.rs'   # compress most files, keep *.rs in full
 ### Output formats
 
 ```bash
-flat --format xml                     # XML (default, structured)
-flat --format markdown | pbcopy       # Markdown (human-readable)
+flat --format markdown | pbcopy       # Markdown (default, human-readable)
+flat --format xml                     # XML (structured, programmatic)
 flat --format json                    # JSON (programmatic use)
 flat --template claude-review | pbcopy # Custom template
 flat -o snapshot.xml                  # write to file instead of stdout
@@ -418,7 +423,7 @@ real    0m2.883s
 
 ### How It Works
 
-- **`--parallel`** (default in v0.6.0) — Uses all CPU cores, 3-6x faster on multi-core systems
+- **Parallel processing** (enabled by default in v0.6.0) — Uses all CPU cores, 3-6x faster on multi-core systems. Use `--no-parallel` to disable.
 - **`--cache`** (enabled by default) — Incremental caching stores results, 30% faster on repeated runs
 - **`--no-cache`** — Disables caching for reproducible CI/CD pipelines
 
@@ -528,10 +533,10 @@ See [LICENSE](LICENSE) for details.
 - JSON output format
 - 280+ tests, all passing
 
-### v0.6.0 Performance (planned)
-- Incremental processing with caching
-- Watch mode for auto-regeneration
-- Parallel compression
+### v0.6.0 ✅ Performance
+- Parallel processing (3-6x speedup, enabled by default)
+- Incremental caching (10-100x faster iterative runs)
+- Watch mode for auto-regeneration on file changes
 
 ### v1.0 Intelligence (research)
 - Hierarchical summarization (18:1 compression)

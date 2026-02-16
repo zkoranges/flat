@@ -241,28 +241,34 @@ fn write_with_budget(
     budget: usize,
     tokenizer: &Tokenizer,
 ) -> Result<()> {
+    use rayon::prelude::*;
+
     let base_path = &config.path;
 
-    // Read all file contents and compute scores
-    let mut candidates: Vec<FileCandidate> = Vec::new();
-    for path in files {
-        match fs::read_to_string(path) {
-            Ok(content) => {
-                let score = score_file(path, base_path);
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                let is_prose = is_prose_extension(ext);
-                candidates.push(FileCandidate {
-                    path: path.clone(),
-                    content,
-                    score,
-                    is_prose,
-                });
+    // OPTIMIZATION: Read all file contents in parallel (v0.6.0 performance improvement)
+    // This significantly speeds up token budget mode which was a bottleneck
+    let mut candidates: Vec<FileCandidate> = files
+        .par_iter()
+        .filter_map(|path| {
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let score = score_file(path, base_path);
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    let is_prose = is_prose_extension(ext);
+                    Some(FileCandidate {
+                        path: path.clone(),
+                        content,
+                        score,
+                        is_prose,
+                    })
+                }
+                Err(e) => {
+                    eprintln!("Error reading {}: {}", path.display(), e);
+                    None
+                }
             }
-            Err(e) => {
-                eprintln!("Error reading {}: {}", path.display(), e);
-            }
-        }
-    }
+        })
+        .collect();
 
     // Sort by (score DESC, path ASC) — stable sort
     candidates.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.path.cmp(&b.path)));
@@ -729,10 +735,15 @@ fn maybe_compress(
 
 /// Check if a file should be skipped, returning the reason if so
 fn should_skip(path: &Path, config: &Config) -> Option<SkipReason> {
-    if let Some(file_name) = path.file_name() {
-        if !config.should_include_by_match(&file_name.to_string_lossy()) {
-            return Some(SkipReason::Match);
-        }
+    // Match against relative path (e.g., "src/utils/lib.rs") instead of just filename
+    // This allows patterns like "src/**/*.rs" to work correctly
+    let match_path = match path.strip_prefix(&config.path) {
+        Ok(rel_path) => rel_path.to_string_lossy(),
+        Err(_) => path.file_name().unwrap_or_default().to_string_lossy(),
+    };
+
+    if !config.should_include_by_match(&match_path) {
+        return Some(SkipReason::Match);
     }
 
     if is_secret_file(path) {
