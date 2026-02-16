@@ -16,6 +16,7 @@ impl OutputFormat {
         match s.to_lowercase().as_str() {
             "xml" => Some(OutputFormat::Xml),
             "json" => Some(OutputFormat::Json),
+            "markdown" => Some(OutputFormat::Template("minimal".to_string())), // Markdown uses minimal template
             "plaintext" => Some(OutputFormat::PlainText),
             _ => None,
         }
@@ -64,7 +65,7 @@ impl Default for Config {
             full_match_patterns: None,
             token_budget: None,
             tokenizer: TokenizerKind::default(),
-            output_format: OutputFormat::Xml,
+            output_format: OutputFormat::Template("minimal".to_string()), // Default to markdown (minimal template) for LLM consumption
             template: None,
             github: false,
             github_token: None,

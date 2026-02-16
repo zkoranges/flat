@@ -119,8 +119,8 @@ struct FlattenArgs {
     #[arg(long, default_value = "heuristic", value_name = "NAME")]
     tokenizer: String,
 
-    /// Output format [xml, json]
-    #[arg(long, default_value = "xml", value_name = "FORMAT")]
+    /// Output format [markdown, xml, json] - markdown is default for LLM consumption
+    #[arg(long, default_value = "markdown", value_name = "FORMAT")]
     format: String,
 
     /// Use a template for output (overrides --format)
@@ -212,9 +212,19 @@ fn run_flatten(cli: FlattenArgs) -> Result<()> {
     let output_format = match OutputFormat::from_string(&cli.format) {
         Some(fmt) => fmt,
         None => bail!(
-            "Unknown format '{}'. Valid options: xml, json",
+            "Unknown format '{}'. Valid options: markdown (LLM-friendly default), xml, json",
             cli.format
         ),
+    };
+
+    // If format is template-based and no explicit template is set, use the template from format
+    let template = if cli.template.is_none() {
+        match &output_format {
+            OutputFormat::Template(t) => Some(t.clone()),
+            _ => None,
+        }
+    } else {
+        cli.template.clone()
     };
 
     // Handle GitHub URL if --github flag is set
@@ -274,7 +284,7 @@ fn run_flatten(cli: FlattenArgs) -> Result<()> {
         token_budget: cli.tokens,
         tokenizer,
         output_format,
-        template: cli.template,
+        template,
         github: cli.github,
         github_token: cli.github_token,
         exclude_dirs: cli.exclude_dir,

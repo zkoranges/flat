@@ -2392,7 +2392,8 @@ fn test_compression_preserves_structure_with_mix() {
 
 #[test]
 fn test_json_format_flag() {
-    let output = flat_cmd()
+    // Use direct Command to avoid flat_cmd's default --format xml
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flat"))
         .arg("tests/fixtures/sample_project")
         .arg("--format")
         .arg("json")
