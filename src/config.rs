@@ -70,8 +70,8 @@ impl Default for Config {
             github_token: None,
             exclude_dirs: None,
             no_ignore: false,
-            parallel: false,        // Disabled by default
-            cache: true,            // Enabled by default
+            parallel: true,         // v0.6.0: Enabled by default (fallback to sequential if needed)
+            cache: true,            // v0.6.0: Enabled by default
             watch: false,           // Disabled by default
         }
     }

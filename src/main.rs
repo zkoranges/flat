@@ -136,9 +136,13 @@ struct FlattenArgs {
     #[arg(long, value_name = "TOKEN")]
     github_token: Option<String>,
 
-    /// Use parallel processing for faster flattening on multi-core systems (v0.6.0)
+    /// Enable parallel processing (v0.6.0; parallel is enabled by default, use --no-parallel to disable)
     #[arg(long)]
     parallel: bool,
+
+    /// Disable parallel processing (v0.6.0; parallel is enabled by default)
+    #[arg(long)]
+    no_parallel: bool,
 
     /// Disable incremental caching (v0.6.0; caching is enabled by default)
     #[arg(long)]
@@ -275,8 +279,8 @@ fn run_flatten(cli: FlattenArgs) -> Result<()> {
         github_token: cli.github_token,
         exclude_dirs: cli.exclude_dir,
         no_ignore: cli.no_ignore,
-        parallel: cli.parallel,
-        cache: !cli.no_cache,  // Default to true unless --no-cache is specified
+        parallel: !cli.no_parallel,  // Default to true unless --no-parallel is specified (v0.6.0)
+        cache: !cli.no_cache,        // Default to true unless --no-cache is specified
         watch: cli.watch,
     };
 

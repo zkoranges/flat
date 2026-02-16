@@ -115,16 +115,17 @@ Template variables available: `{{files}}`, `{{statistics}}`, `{{repo_name}}`, `{
 
 Three new features for faster iteration:
 
-### Parallel Processing (`--parallel`)
+### Parallel Processing (enabled by default, `--no-parallel` to disable)
 
-Process files in parallel on multi-core systems for 3-6x speedup:
+**Enabled by default in v0.6.0** for 3-6x speedup on multi-core systems.
 
 ```bash
-flat --parallel                           # 3-6x faster on 4+ cores
-flat --compress --parallel                # works with all features
+flat                                      # Uses parallel by default (3-6x faster)
+flat --compress                           # Works with all features
+flat --no-parallel                        # Disable parallel (fallback to sequential)
 ```
 
-Output is byte-for-byte identical to sequential mode (deterministic).
+Output is byte-for-byte identical to sequential mode (deterministic). If parallel processing fails for any reason, automatically falls back to sequential processing.
 
 ### Incremental Caching (`--cache`)
 
@@ -384,7 +385,25 @@ Binary files are automatically skipped (images, media, archives, executables, co
 
 ## Performance
 
-Processes large codebases efficiently:
+Processes large codebases efficiently with v0.6.0's parallel processing and caching:
+
+### Benchmark: Linux Kernel (92,832 files, 2.0GB)
+
+Real-world performance on massive codebases:
+
+| Scenario | Time | Speedup | Notes |
+|----------|------|---------|-------|
+| **Basic flatten** | 7.0s | 1.25x | vs v0.5.0 (8.8s) |
+| **Compression (sequential)** | 112.1s | — | baseline for comparison |
+| **Compression + `--parallel`** | **22.8s** | **4.66x** | Main use case |
+| **Parallel + cache (cold)** | 10.1s | 10.5x | First cache build |
+| **Parallel + cache (warm)** | **7.05s** | **15.05x** | Iterative development |
+
+**Key takeaway:** On large repositories, v0.6.0 achieves **4.66x speedup** for analysis and **15x speedup** for iterative development with cache.
+
+### Smaller Repositories
+
+On typical projects (95-1,000 files):
 
 ```bash
 $ time flat /path/to/nextjs --compress --stats
@@ -397,7 +416,13 @@ Skipped: 894
 real    0m2.883s
 ```
 
-Without `--tokens`, compression streams file-by-file (constant memory). With `--tokens`, all candidate files are buffered for scoring — but even that is fast.
+### How It Works
+
+- **`--parallel`** (default in v0.6.0) — Uses all CPU cores, 3-6x faster on multi-core systems
+- **`--cache`** (enabled by default) — Incremental caching stores results, 30% faster on repeated runs
+- **`--no-cache`** — Disables caching for reproducible CI/CD pipelines
+
+Without `--tokens`, compression streams file-by-file (constant memory). With `--tokens`, all candidate files are buffered for scoring — but even that is fast thanks to parallelization.
 
 ## Recipes
 

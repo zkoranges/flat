@@ -215,7 +215,15 @@ pub fn walk_and_flatten(config: &Config) -> Result<Statistics> {
     } else {
         // Dispatch to parallel or sequential writer based on config
         if config.parallel {
-            write_normal_parallel(config, &files_to_process, &mut output, &mut stats)?;
+            // Try parallel first, with automatic fallback to sequential on error
+            match write_normal_parallel(config, &files_to_process, &mut output, &mut stats) {
+                Ok(_) => {}, // Parallel succeeded
+                Err(e) => {
+                    // Fallback to sequential on error
+                    eprintln!("Warning: Parallel processing failed, falling back to sequential: {}", e);
+                    write_normal(config, &files_to_process, &mut output, &mut stats)?;
+                }
+            }
         } else {
             write_normal(config, &files_to_process, &mut output, &mut stats)?;
         }
