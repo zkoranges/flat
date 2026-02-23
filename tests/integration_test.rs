@@ -1450,12 +1450,14 @@ fn test_determinism_with_compress() {
     let output1 = flat_cmd()
         .arg("tests/fixtures/snapshot")
         .arg("--compress")
+        .arg("--no-cache")
         .output()
         .expect("Failed to execute command");
 
     let output2 = flat_cmd()
         .arg("tests/fixtures/snapshot")
         .arg("--compress")
+        .arg("--no-cache")
         .output()
         .expect("Failed to execute command");
 
